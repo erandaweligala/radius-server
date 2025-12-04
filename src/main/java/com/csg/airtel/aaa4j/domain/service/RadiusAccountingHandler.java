@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @ApplicationScoped
 public class RadiusAccountingHandler implements RadiusServer.Handler {
-
+    //todo  is  check this code handle 500 tps handle
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
     private static final int MAX_TPS = 500; // Maximum 500 transactions per second
     private static final long REFILL_INTERVAL_NS = 1_000_000_000L; // 1 second in nanoseconds
@@ -33,7 +33,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
 
     private final RadiusAccountingProducer radiusAccountingProducer;
 
-    // Optimized rate limiting using token bucket algorithm - O(1) complexity
     private final AtomicLong lastRefillTime = new AtomicLong(System.nanoTime());
     private final AtomicLong availableTokens = new AtomicLong(MAX_TPS);
     private final AtomicLong droppedRequestCount = new AtomicLong(0);
@@ -50,7 +49,7 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     }
 
     /**
-     * Optimized rate limiting using token bucket algorithm - O(1) complexity
+     *
      * Refills tokens every second and checks if a token is available
      * @return true if request is within limit, false if rate limit exceeded
      */
