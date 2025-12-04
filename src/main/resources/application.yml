@@ -52,6 +52,24 @@ client:
 auth:
   service:
     url: https://aeb53274042be477aba79f9076056316-ee9e05124271e8a5.elb.ap-southeast-2.amazonaws.com/airtel-aaa-auth-management-service/api/users/authenticate
+
+# Circuit Breaker Configuration
+fault-tolerance:
+  "com.csg.airtel.aaa4j.domain.producer.RadiusAccountingProducer/produceAccountingEvent":
+    circuit-breaker:
+      request-volume-threshold: 5
+      failure-ratio: 0.5
+      delay: 30000
+      success-threshold: 2
+
+# Micrometer Metrics Configuration
+quarkus.micrometer:
+  enabled: true
+  export:
+    prometheus:
+      enabled: true
+      path: /metrics
+
 mp:
   messaging:
     outgoing:
