@@ -10,6 +10,7 @@ import jakarta.inject.Inject;
 
 import org.eclipse.microprofile.faulttolerance.CircuitBreaker;
 import org.eclipse.microprofile.faulttolerance.Fallback;
+import org.eclipse.microprofile.faulttolerance.Timeout;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.eclipse.microprofile.reactive.messaging.Message;
@@ -24,7 +25,6 @@ import static io.quarkus.arc.ComponentsProvider.LOG;
 @ApplicationScoped
 public class RadiusAccountingProducer {
 
-    //todo need to implement timeout fail case
     private final Emitter<AccountingRequestDto> accountingEmitter;
     private final Counter failureCounter;
     private final Counter fallbackCounter;
@@ -39,6 +39,7 @@ public class RadiusAccountingProducer {
         this.fallbackCounter = meterRegistry.counter("accounting.publish.fallback");
     }
 
+    @Timeout(5000) // 5 second timeout for Kafka publish operations
     @CircuitBreaker(
             requestVolumeThreshold = 5,
             failureRatio = 0.5,
