@@ -39,7 +39,7 @@ public class RadiusAccountingProducer {
         this.fallbackCounter = meterRegistry.counter("accounting.publish.fallback");
     }
 
-    @Timeout(5000) // 5 second timeout for Kafka publish operations
+    @Timeout(3000) // 3 second timeout for Kafka publish operations
     @CircuitBreaker(
             requestVolumeThreshold = 5,
             failureRatio = 0.5,
