@@ -57,6 +57,11 @@ public class RadiusAuthenticationHandler implements RadiusServer.Handler {
 
                 return handleAccessRequest(traceId, (AccessRequest) requestPacket);
 
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                logger.errorf("[{}] Packet processing interrupted: {}", traceId, ie.getMessage(), ie);
+                return buildAccessReject("Request interrupted");
+
             } catch (Exception e) {
                 logger.errorf("[{}] Error while processing packet: {}", traceId, e.getMessage(), e);
                 return buildAccessReject("Internal server error occurred. Please try again later.");
@@ -71,7 +76,7 @@ public class RadiusAuthenticationHandler implements RadiusServer.Handler {
                     traceId, clientAddress.getHostAddress(), packet.getClass().getSimpleName());
         }
 
-        private Packet handleAccessRequest(String traceId, AccessRequest requestPacket) {
+        private Packet handleAccessRequest(String traceId, AccessRequest requestPacket) throws InterruptedException {
             if (isMissingMessageAuthenticator(requestPacket)) {
                 logger.warnf("[{}] Rejecting request without Message-Authenticator", traceId);
                 return buildAccessReject("Missing Message-Authenticator");
@@ -105,13 +110,9 @@ public class RadiusAuthenticationHandler implements RadiusServer.Handler {
         }
 
         private Packet authenticateUser(String traceId, String username, String password,
-                                        String chapChallenge, String chapPassword, String nasIpAddress) {
+                                        String chapChallenge, String chapPassword, String nasIpAddress) throws InterruptedException {
 
-            // Use reactive client with timeout - await() converts Uni to blocking with timeout protection
-            UserDetails userDetails = authManagementServiceClient
-                    .authenticate(username, password, chapChallenge, chapPassword, nasIpAddress)
-                    .await().atMost(java.time.Duration.ofSeconds(6)); // Slightly more than @Timeout
-
+            UserDetails userDetails = authManagementServiceClient.authenticate(username, password, chapChallenge, chapPassword, nasIpAddress);
             logger.infof("[{}] Authorization result for user '{}': {}", traceId, username, userDetails.getIsAuthorized());
 
             if (!userDetails.getIsEnoughBalance()) {
@@ -158,29 +159,15 @@ public class RadiusAuthenticationHandler implements RadiusServer.Handler {
 
             if (userAttrs != null) {
                 userAttrs.forEach((key, value) -> {
-                    try {
-                        switch (key.toUpperCase()) {
-                            case "SESSION_TIMEOUT":
-                                int sessionTimeout = Integer.parseInt(value);
-                                if (sessionTimeout > 0) {
-                                    attributes.add(new SessionTimeout(new IntegerData(sessionTimeout)));
-                                } else {
-                                    logger.warnf("Invalid SESSION_TIMEOUT value: %s (must be positive)", value);
-                                }
-                                break;
-                            case "IDLE_TIMEOUT":
-                                int idleTimeout = Integer.parseInt(value);
-                                if (idleTimeout > 0) {
-                                    attributes.add(new IdleTimeout(new IntegerData(idleTimeout)));
-                                } else {
-                                    logger.warnf("Invalid IDLE_TIMEOUT value: %s (must be positive)", value);
-                                }
-                                break;
-                            default:
-                                break;
-                        }
-                    } catch (NumberFormatException e) {
-                        logger.warnf("Invalid numeric value for attribute %s: %s", key, value);
+                    switch (key.toUpperCase()) {
+                        case "SESSION_TIMEOUT":
+                            attributes.add(new SessionTimeout(new IntegerData(Integer.parseInt(value))));
+                            break;
+                        case "IDLE_TIMEOUT":
+                            attributes.add(new IdleTimeout(new IntegerData(Integer.parseInt(value))));
+                            break;
+                        default:
+                            break;
                     }
                 });
             }

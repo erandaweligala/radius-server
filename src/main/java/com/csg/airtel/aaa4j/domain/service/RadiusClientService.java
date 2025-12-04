@@ -13,7 +13,6 @@ import org.jboss.logging.Logger;
 
 import java.net.InetSocketAddress;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -23,9 +22,6 @@ public class RadiusClientService {
 
     private static final int COA_ACK = 44;
     private static final int COA_NAK = 45;
-
-    // Connection pool: cache clients by server address:port
-    private final ConcurrentHashMap<String, RadiusClient> clientPool = new ConcurrentHashMap<>();
 
     /**
      * Sends a COA (Change of Authorization) request to a RADIUS server reactively
@@ -50,19 +46,13 @@ public class RadiusClientService {
     }
 
     /**
-     * Gets or creates a RADIUS client from the pool (connection pooling for performance)
+     * Creates a RADIUS client with the given configuration
      */
     private RadiusClient createRadiusClient(RadiusConfig radiusConfig) {
-        String poolKey = radiusConfig.serverAddress() + ":" + radiusConfig.port();
-
-        // Get from pool or create new client
-        return clientPool.computeIfAbsent(poolKey, key -> {
-            logger.infof("Creating new RADIUS client for %s", key);
-            return UdpRadiusClient.newBuilder()
-                    .secret(radiusConfig.sharedSecret().getBytes(UTF_8))
-                    .address(new InetSocketAddress(radiusConfig.serverAddress(), radiusConfig.port()))
-                    .build();
-        });
+        return UdpRadiusClient.newBuilder()
+                .secret(radiusConfig.sharedSecret().getBytes(UTF_8))
+                .address(new InetSocketAddress(radiusConfig.serverAddress(), radiusConfig.port()))
+                .build();
     }
 
     /**
@@ -72,21 +62,17 @@ public class RadiusClientService {
         return Uni.createFrom().item(() -> {
                     logger.infof("Processing for code: %s", code);
                     Packet coaRequest = new Packet(code, attributes);
-                    logger.infof("Sending packet with %s attributes", attributes.size());
+                    logger.infof("Sending packet  with %s attributes", attributes.size());
                     return coaRequest;
                 })
                 .chain(coaRequest ->
                         Uni.createFrom().item(() -> {
                             try {
-                                Packet response = radiusClient.send(coaRequest);
-                                if (response == null) {
-                                    throw new RuntimeException("RADIUS server returned null response");
-                                }
-                                return response;
+                                return radiusClient.send(coaRequest);
                             } catch (RadiusClientException e) {
                                 logger.error("RADIUS client error while sending packet", e);
-                                throw new RuntimeException("Failed to send RADIUS packet", e);
                             }
+                            return null;
                         })
                 )
                 .runSubscriptionOn(Infrastructure.getDefaultWorkerPool()); // Execute blocking I/O on worker thread
@@ -98,10 +84,9 @@ public class RadiusClientService {
     private Uni<Void> processResponse(Packet responsePacket) {
         return Uni.createFrom().voidItem()
                 .invoke(() -> {
-                    // Null check should not happen due to previous validation, but keep for safety
                     if (responsePacket == null) {
-                        logger.error("Received null response packet - this should not happen");
-                        throw new RuntimeException("Null RADIUS response received");
+                        logger.warn("Received null response packet");
+                        return;
                     }
 
                     int responseCode = responsePacket.getCode();
@@ -110,14 +95,10 @@ public class RadiusClientService {
                     switch (responseCode) {
                         case COA_ACK ->
                                 logger.info("COA request acknowledged successfully");
-                        case COA_NAK -> {
+                        case COA_NAK ->
                                 logger.warn("COA request rejected by RADIUS server");
-                                throw new RuntimeException("COA request rejected by server (NAK)");
-                        }
-                        default -> {
-                                logger.warnf("Unexpected RADIUS response code: %d", responseCode);
-                                throw new RuntimeException("Unexpected RADIUS response code: " + responseCode);
-                        }
+                        default ->
+                                logger.warnf("Unexpected response code: %d", responseCode);
                     }
                 });
     }
