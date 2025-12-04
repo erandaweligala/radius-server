@@ -19,7 +19,7 @@ import static io.quarkus.arc.ComponentsProvider.LOG;
 
 @ApplicationScoped
 public class RadiusAccountingProducer {
-
+// todo implenet CircuitBracker annotation is this possible to implepment
     Emitter<AccountingRequestDto> accountingEmitter;
 
     @Inject
