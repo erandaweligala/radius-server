@@ -22,7 +22,7 @@ import java.util.List;
 
 @ApplicationScoped
 public class RadiusAccountingHandler implements RadiusServer.Handler {
-
+//todo need to implement RadiusAccountingHandler request limit 500tps after and log other request
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
 
     @ConfigProperty(name = "radius.shared-secret")
