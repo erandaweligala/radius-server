@@ -42,7 +42,12 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
 
     @Override
     public Packet handlePacket(InetAddress clientAddress, Packet packet) {
+        // Generate traceId if not present
         String traceId = MDC.get("traceId");
+        if (traceId == null || traceId.isBlank()) {
+            traceId = com.csg.airtel.aaa4j.common.util.TraceIdGenerator.generateTraceId();
+            MDC.put("traceId", traceId);
+        }
         logger.infof("[TraceId : %s] Received accounting packet from %s", traceId, clientAddress.getHostAddress());
 
         if (!(packet instanceof AccountingRequest)) {
@@ -70,7 +75,25 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
                 case STOP -> buildStopRequest(traceId, commonAttrs, packet);
             };
 
-            radiusAccountingProducer.produceAccountingEvent(accountingRequest);
+            // Await Kafka producer result with timeout to ensure message delivery
+            try {
+                radiusAccountingProducer.produceAccountingEvent(accountingRequest)
+                        .toCompletableFuture()
+                        .get(3, java.util.concurrent.TimeUnit.SECONDS);
+
+                if (logger.isDebugEnabled()) {
+                    logger.debugf("[TraceId : %s] Successfully sent accounting %s to Kafka for session %s",
+                            traceId, actionType, commonAttrs.sessionId);
+                }
+            } catch (java.util.concurrent.TimeoutException e) {
+                logger.errorf("[TraceId : %s] Timeout sending accounting %s to Kafka for session %s",
+                        traceId, actionType, commonAttrs.sessionId);
+                // Continue to send response even if Kafka fails - accounting is async
+            } catch (Exception e) {
+                logger.errorf(e, "[TraceId : %s] Failed to send accounting %s to Kafka for session %s",
+                        traceId, actionType, commonAttrs.sessionId);
+                // Continue to send response even if Kafka fails - accounting is async
+            }
 
             if (logger.isDebugEnabled()) {
                 logger.debugf("[TraceId : %s] Processed accounting %s for session %s from %s",
@@ -86,6 +109,9 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
             logger.errorf(e, "[TraceId : %s] Error processing accounting packet from %s",
                     traceId, clientAddress.getHostAddress());
             return null;
+        } finally {
+            // Clean up MDC to prevent memory leaks
+            MDC.remove("traceId");
         }
     }
 

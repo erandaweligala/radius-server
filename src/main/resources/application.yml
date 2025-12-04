@@ -52,6 +52,17 @@ client:
 auth:
   service:
     url: https://aeb53274042be477aba79f9076056316-ee9e05124271e8a5.elb.ap-southeast-2.amazonaws.com/airtel-aaa-auth-management-service/api/users/authenticate
+    timeout: 5000
+  cache:
+    enabled: true
+    ttl.seconds: 300  # 5 minutes cache TTL
+
+# Redis Configuration for Caching
+quarkus.redis:
+  hosts: redis://localhost:6379
+  timeout: 5s
+  max-pool-size: 20
+  max-waiting-requests: 1000
 mp:
   messaging:
     outgoing:
@@ -82,4 +93,8 @@ mp:
         max.poll.records: 100
         max.poll.interval.ms: 300000
         session.timeout.ms: 30000
-        failure-strategy: ignore
+        # Retry strategy with exponential backoff
+        failure-strategy: fail
+        retry: true
+        retry-attempts: 3
+        retry-max-wait: 30
