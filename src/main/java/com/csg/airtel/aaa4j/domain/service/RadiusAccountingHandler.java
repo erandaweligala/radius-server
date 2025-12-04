@@ -18,25 +18,24 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicLong;
 
 
 @ApplicationScoped
 public class RadiusAccountingHandler implements RadiusServer.Handler {
 
-    //todo this RadiusAccountingHandler have any overhead methods ?
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
     private static final int MAX_TPS = 500; // Maximum 500 transactions per second
-    private static final long WINDOW_SIZE_MS = 1000; // 1 second window
+    private static final long REFILL_INTERVAL_NS = 1_000_000_000L; // 1 second in nanoseconds
 
     @ConfigProperty(name = "radius.shared-secret")
     String sharedSecret;
 
     private final RadiusAccountingProducer radiusAccountingProducer;
 
-    // Rate limiting using sliding window
-    private final ConcurrentLinkedDeque<Long> requestTimestamps = new ConcurrentLinkedDeque<>();
+    // Optimized rate limiting using token bucket algorithm - O(1) complexity
+    private final AtomicLong lastRefillTime = new AtomicLong(System.nanoTime());
+    private final AtomicLong availableTokens = new AtomicLong(MAX_TPS);
     private final AtomicLong droppedRequestCount = new AtomicLong(0);
     private final AtomicLong totalRequestCount = new AtomicLong(0);
 
@@ -51,27 +50,33 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     }
 
     /**
-     * Check if the current request should be rate-limited based on 500 TPS limit
-     * Uses a sliding window algorithm to track requests in the last second
+     * Optimized rate limiting using token bucket algorithm - O(1) complexity
+     * Refills tokens every second and checks if a token is available
      * @return true if request is within limit, false if rate limit exceeded
      */
     private boolean checkRateLimit() {
-        long currentTime = System.currentTimeMillis();
-        long windowStart = currentTime - WINDOW_SIZE_MS;
+        long now = System.nanoTime();
+        long lastRefill = lastRefillTime.get();
+        long timeSinceRefill = now - lastRefill;
 
-        // Remove timestamps outside the current window
-        while (!requestTimestamps.isEmpty() && requestTimestamps.peekFirst() < windowStart) {
-            requestTimestamps.pollFirst();
+        // Refill tokens if 1 second has passed
+        if (timeSinceRefill >= REFILL_INTERVAL_NS) {
+            if (lastRefillTime.compareAndSet(lastRefill, now)) {
+                availableTokens.set(MAX_TPS);
+            }
         }
 
-        // Check if we're at or over the limit
-        if (requestTimestamps.size() >= MAX_TPS) {
-            return false; // Rate limit exceeded
+        // Try to acquire a token using optimistic locking
+        while (true) {
+            long tokens = availableTokens.get();
+            if (tokens <= 0) {
+                return false; // Rate limit exceeded
+            }
+            if (availableTokens.compareAndSet(tokens, tokens - 1)) {
+                return true; // Token acquired
+            }
+            // CAS failed, retry
         }
-
-        // Add current request timestamp
-        requestTimestamps.addLast(currentTime);
-        return true; // Within rate limit
     }
 
     @Override
@@ -79,22 +84,23 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
         String traceId = MDC.get("traceId");
         long totalRequests = totalRequestCount.incrementAndGet();
 
-        // Check rate limit before processing
+        // Check rate limit before processing - O(1) token bucket
         if (!checkRateLimit()) {
             long droppedCount = droppedRequestCount.incrementAndGet();
-            logger.warnf("[TraceId : %s] RATE_LIMIT_EXCEEDED - Request from %s dropped (Total requests: %d, Dropped: %d, Limit: %d TPS)",
-                    traceId, clientAddress.getHostAddress(), totalRequests, droppedCount, MAX_TPS);
 
-            // Log additional details every 100 dropped requests
+            // Only log every 100th dropped request to reduce overhead
             if (droppedCount % 100 == 0) {
-                logger.errorf("[TraceId : %s] RATE_LIMIT_ALERT - %d requests dropped so far. Current rate exceeds %d TPS limit",
-                        traceId, droppedCount, MAX_TPS);
+                logger.warnf("[TraceId : %s] RATE_LIMIT_ALERT - %d requests dropped so far (Total: %d, Limit: %d TPS)",
+                        traceId, droppedCount, totalRequests, MAX_TPS);
             }
 
             return null; // Drop the request
         }
 
-        logger.infof("[TraceId : %s] Received accounting packet from %s", traceId, clientAddress.getHostAddress());
+        // Only log at DEBUG level to reduce overhead in production
+        if (logger.isDebugEnabled()) {
+            logger.debugf("[TraceId : %s] Received accounting packet from %s", traceId, clientAddress.getHostAddress());
+        }
 
         if (!(packet instanceof AccountingRequest)) {
             logger.warnf("[TraceId : %s] Non-accounting packet received from %s", traceId, clientAddress.getHostAddress());
@@ -123,13 +129,11 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
 
             radiusAccountingProducer.produceAccountingEvent(accountingRequest);
 
+            // Only log at DEBUG level to reduce overhead in production
             if (logger.isDebugEnabled()) {
-                logger.debugf("[TraceId : %s] Processed accounting %s for session %s from %s",
-                        traceId, actionType, commonAttrs.sessionId, commonAttrs.clientAddress);
+                logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
+                        traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);
             }
-
-            logger.infof("[TraceId : %s] Accounting %s processed for user %s",
-                    traceId, actionType, commonAttrs.userName);
 
             return createAccountingResponse(commonAttrs.sessionId);
 
@@ -141,42 +145,35 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     }
 
     /**
-     * Extract common attributes present in all accounting request types
+     * Optimized attribute extraction - reduces Optional overhead by direct access
      */
     private CommonAttributes extractCommonAttributes(Packet packet, InetAddress clientAddress) {
         String clientAddressStr = clientAddress.getHostAddress();
 
-        String sessionId = packet.getAttribute(AcctSessionId.class)
-                .map(a -> a.getData().getValue())
-                .orElse(null);
+        // Direct extraction to avoid Optional chaining overhead
+        var sessionIdAttr = packet.getAttribute(AcctSessionId.class).orElse(null);
+        String sessionId = sessionIdAttr != null ? sessionIdAttr.getData().getValue() : null;
 
-        String nasIp = packet.getAttribute(NasIpAddress.class)
-                .map(a -> a.getData().getValue().getHostAddress())
-                .orElse(clientAddressStr);
+        var nasIpAttr = packet.getAttribute(NasIpAddress.class).orElse(null);
+        String nasIp = nasIpAttr != null ? nasIpAttr.getData().getValue().getHostAddress() : clientAddressStr;
 
-        String userName = packet.getAttribute(UserName.class)
-                .map(a -> a.getData().getValue())
-                .orElse(null);
+        var userNameAttr = packet.getAttribute(UserName.class).orElse(null);
+        String userName = userNameAttr != null ? userNameAttr.getData().getValue() : null;
 
-        String nasPortId = packet.getAttribute(NasPortId.class)
-                .map(a -> a.getData().getValue())
-                .orElse(null);
+        var nasPortIdAttr = packet.getAttribute(NasPortId.class).orElse(null);
+        String nasPortId = nasPortIdAttr != null ? nasPortIdAttr.getData().getValue() : null;
 
-        String nasIdentifier = packet.getAttribute(NasIdentifier.class)
-                .map(a -> a.getData().getValue())
-                .orElse(null);
+        var nasIdentifierAttr = packet.getAttribute(NasIdentifier.class).orElse(null);
+        String nasIdentifier = nasIdentifierAttr != null ? nasIdentifierAttr.getData().getValue() : null;
 
-        Integer nasPortType = packet.getAttribute(NasPortType.class)
-                .map(a -> a.getData().getValue())
-                .orElse(null);
+        var nasPortTypeAttr = packet.getAttribute(NasPortType.class).orElse(null);
+        Integer nasPortType = nasPortTypeAttr != null ? nasPortTypeAttr.getData().getValue() : null;
 
-        int delayTime = packet.getAttribute(AcctDelayTime.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
-        Instant eventTime = packet.getAttribute(EventTimestamp.class)
-                .map(a -> a.getData().getValue())
-                .orElse(Instant.now());
+        var delayTimeAttr = packet.getAttribute(AcctDelayTime.class).orElse(null);
+        int delayTime = delayTimeAttr != null ? delayTimeAttr.getData().getValue() : 0;
 
+        var eventTimeAttr = packet.getAttribute(EventTimestamp.class).orElse(null);
+        Instant eventTime = eventTimeAttr != null ? eventTimeAttr.getData().getValue() : Instant.now();
 
         return new CommonAttributes(
                 clientAddressStr,
@@ -195,12 +192,14 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
      * Build START accounting request with START-specific attributes
      */
     private AccountingRequestDto buildStartRequest(String traceId, CommonAttributes common, Packet packet) {
-        String framedIp = packet.getAttribute(FramedIpAddress.class)
-                .map(a -> a.getData().getValue().getHostAddress())
-                .orElse(null);
+        var framedIpAttr = packet.getAttribute(FramedIpAddress.class).orElse(null);
+        String framedIp = framedIpAttr != null ? framedIpAttr.getData().getValue().getHostAddress() : null;
 
-        logger.infof("[TraceId : %s] START - User: %s, Session: %s, Framed-IP: %s, NAS-Port: %s",
-                traceId, common.userName, common.sessionId, framedIp, common.nasPortId);
+        // Only log at DEBUG level to reduce overhead
+        if (logger.isDebugEnabled()) {
+            logger.debugf("[TraceId : %s] START - User: %s, Session: %s, Framed-IP: %s",
+                    traceId, common.userName, common.sessionId, framedIp);
+        }
 
         return new AccountingRequestDto(
                 traceId,
@@ -218,7 +217,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
                 0,  // inputGigaWords - not present in START
                 0,   // outputGigaWords - not present in START
                 common.nasIdentifier
-
         );
     }
 
@@ -226,43 +224,36 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
      * Build INTERIM accounting request with INTERIM-specific attributes (usage data)
      */
     private AccountingRequestDto buildInterimRequest(String traceId, CommonAttributes common, Packet packet) {
-        String framedIp = packet.getAttribute(FramedIpAddress.class)
-                .map(a -> a.getData().getValue().getHostAddress())
-                .orElse(null);
+        var framedIpAttr = packet.getAttribute(FramedIpAddress.class).orElse(null);
+        String framedIp = framedIpAttr != null ? framedIpAttr.getData().getValue().getHostAddress() : null;
 
-        int inputOctets = packet.getAttribute(AcctInputOctets.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+        var inputOctetsAttr = packet.getAttribute(AcctInputOctets.class).orElse(null);
+        int inputOctets = inputOctetsAttr != null ? inputOctetsAttr.getData().getValue() : 0;
 
-        int outputOctets = packet.getAttribute(AcctOutputOctets.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+        var outputOctetsAttr = packet.getAttribute(AcctOutputOctets.class).orElse(null);
+        int outputOctets = outputOctetsAttr != null ? outputOctetsAttr.getData().getValue() : 0;
 
-        int sessionTime = packet.getAttribute(AcctSessionTime.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+        var sessionTimeAttr = packet.getAttribute(AcctSessionTime.class).orElse(null);
+        int sessionTime = sessionTimeAttr != null ? sessionTimeAttr.getData().getValue() : 0;
 
-        int inputGigaWords = packet.getAttribute(AcctInputGigawords.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+        var inputGigaWordsAttr = packet.getAttribute(AcctInputGigawords.class).orElse(null);
+        int inputGigaWords = inputGigaWordsAttr != null ? inputGigaWordsAttr.getData().getValue() : 0;
 
-        int outputGigaWords = packet.getAttribute(AcctOutputGigawords.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+        var outputGigaWordsAttr = packet.getAttribute(AcctOutputGigawords.class).orElse(null);
+        int outputGigaWords = outputGigaWordsAttr != null ? outputGigaWordsAttr.getData().getValue() : 0;
 
-        int inputPackets = packet.getAttribute(AcctInputPackets.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+        // Only log at DEBUG level to reduce overhead
+        if (logger.isDebugEnabled()) {
+            var inputPacketsAttr = packet.getAttribute(AcctInputPackets.class).orElse(null);
+            int inputPackets = inputPacketsAttr != null ? inputPacketsAttr.getData().getValue() : 0;
 
-        int outputPackets = packet.getAttribute(AcctOutputPackets.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+            var outputPacketsAttr = packet.getAttribute(AcctOutputPackets.class).orElse(null);
+            int outputPackets = outputPacketsAttr != null ? outputPacketsAttr.getData().getValue() : 0;
 
-
-        logger.infof("[TraceId : %s] INTERIM - User: %s, Session: %s, SessionTime: %ds, " +
-                        "Input: %d bytes (%d packets), Output: %d bytes (%d packets)",
-                traceId, common.userName, common.sessionId, sessionTime
-                , inputPackets, outputPackets);
+            logger.debugf("[TraceId : %s] INTERIM - User: %s, Session: %s, SessionTime: %ds, " +
+                            "Input: %d bytes (%d packets), Output: %d bytes (%d packets)",
+                    traceId, common.userName, common.sessionId, sessionTime, inputPackets, outputPackets);
+        }
 
         return new AccountingRequestDto(
                 traceId,
@@ -287,34 +278,31 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
      * Build STOP accounting request with STOP-specific attributes
      */
     private AccountingRequestDto buildStopRequest(String traceId, CommonAttributes common, Packet packet) {
-        int inputOctets = packet.getAttribute(AcctInputOctets.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+        var inputOctetsAttr = packet.getAttribute(AcctInputOctets.class).orElse(null);
+        int inputOctets = inputOctetsAttr != null ? inputOctetsAttr.getData().getValue() : 0;
 
-        int outputOctets = packet.getAttribute(AcctOutputOctets.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+        var outputOctetsAttr = packet.getAttribute(AcctOutputOctets.class).orElse(null);
+        int outputOctets = outputOctetsAttr != null ? outputOctetsAttr.getData().getValue() : 0;
 
-        int sessionTime = packet.getAttribute(AcctSessionTime.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+        var sessionTimeAttr = packet.getAttribute(AcctSessionTime.class).orElse(null);
+        int sessionTime = sessionTimeAttr != null ? sessionTimeAttr.getData().getValue() : 0;
 
-        int inputGigaWords = packet.getAttribute(AcctInputGigawords.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+        var inputGigaWordsAttr = packet.getAttribute(AcctInputGigawords.class).orElse(null);
+        int inputGigaWords = inputGigaWordsAttr != null ? inputGigaWordsAttr.getData().getValue() : 0;
 
-        int outputGigaWords = packet.getAttribute(AcctOutputGigawords.class)
-                .map(a -> a.getData().getValue())
-                .orElse(0);
+        var outputGigaWordsAttr = packet.getAttribute(AcctOutputGigawords.class).orElse(null);
+        int outputGigaWords = outputGigaWordsAttr != null ? outputGigaWordsAttr.getData().getValue() : 0;
 
-        Integer terminateCause = packet.getAttribute(AcctTerminateCause.class)
-                .map(a -> a.getData().getValue())
-                .orElse(null);
+        // Only log at DEBUG level to reduce overhead
+        if (logger.isDebugEnabled()) {
+            var terminateCauseAttr = packet.getAttribute(AcctTerminateCause.class).orElse(null);
+            Integer terminateCause = terminateCauseAttr != null ? terminateCauseAttr.getData().getValue() : null;
 
-        logger.infof("[TraceId : %s] STOP - User: %s, Session: %s, SessionTime: %ds, " +
-                        "TotalInput: %d bytes, TotalOutput: %d bytes, TerminateCause: %s",
-                traceId, common.userName, common.sessionId, sessionTime,
-                terminateCause != null ? getTerminateCauseDescription(terminateCause) : "Unknown");
+            logger.debugf("[TraceId : %s] STOP - User: %s, Session: %s, SessionTime: %ds, " +
+                            "TotalInput: %d bytes, TotalOutput: %d bytes, TerminateCause: %s",
+                    traceId, common.userName, common.sessionId, sessionTime, inputOctets, outputOctets,
+                    terminateCause != null ? getTerminateCauseDescription(terminateCause) : "Unknown");
+        }
 
         return new AccountingRequestDto(
                 traceId,
