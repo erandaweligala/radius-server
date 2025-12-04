@@ -24,6 +24,7 @@ import static io.quarkus.arc.ComponentsProvider.LOG;
 @ApplicationScoped
 public class RadiusAccountingProducer {
 
+    //todo need to implement timeout fail case
     private final Emitter<AccountingRequestDto> accountingEmitter;
     private final Counter failureCounter;
     private final Counter fallbackCounter;
@@ -89,7 +90,7 @@ public class RadiusAccountingProducer {
 
     /**
      * Fallback method for circuit breaker - provides alternative path when Kafka is unavailable
-     * Logs failure details without blocking the caller (zero overhead)
+     * Logs failure details without blocking the caller
      */
     public CompletionStage<Void> fallbackProduceAccountingEvent(AccountingRequestDto request) {
         fallbackCounter.increment();
@@ -97,9 +98,6 @@ public class RadiusAccountingProducer {
 
         LOG.warnf("Circuit breaker activated - Fallback for accounting event - SessionId: %s, NasIP: %s, Action: %s (consecutive failures: %d)",
                 request.sessionId(), request.nasIP(), request.actionType(), failures);
-
-        // Return completed future immediately - no blocking
-        // In production, could store in DLQ or local queue for retry
         return CompletableFuture.completedFuture(null);
     }
 
