@@ -18,17 +18,25 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 @ApplicationScoped
 public class RadiusAccountingHandler implements RadiusServer.Handler {
-//todo need to implement RadiusAccountingHandler request limit 500tps after and log other request
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
+    private static final int MAX_TPS = 500; // Maximum 500 transactions per second
+    private static final long WINDOW_SIZE_MS = 1000; // 1 second window
 
     @ConfigProperty(name = "radius.shared-secret")
     String sharedSecret;
 
     private final RadiusAccountingProducer radiusAccountingProducer;
+
+    // Rate limiting using sliding window
+    private final ConcurrentLinkedDeque<Long> requestTimestamps = new ConcurrentLinkedDeque<>();
+    private final AtomicLong droppedRequestCount = new AtomicLong(0);
+    private final AtomicLong totalRequestCount = new AtomicLong(0);
 
     public RadiusAccountingHandler(RadiusAccountingProducer radiusAccountingProducer) {
         this.radiusAccountingProducer = radiusAccountingProducer;
@@ -40,9 +48,50 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
         return sharedSecret.getBytes(StandardCharsets.UTF_8);
     }
 
+    /**
+     * Check if the current request should be rate-limited based on 500 TPS limit
+     * Uses a sliding window algorithm to track requests in the last second
+     * @return true if request is within limit, false if rate limit exceeded
+     */
+    private boolean checkRateLimit() {
+        long currentTime = System.currentTimeMillis();
+        long windowStart = currentTime - WINDOW_SIZE_MS;
+
+        // Remove timestamps outside the current window
+        while (!requestTimestamps.isEmpty() && requestTimestamps.peekFirst() < windowStart) {
+            requestTimestamps.pollFirst();
+        }
+
+        // Check if we're at or over the limit
+        if (requestTimestamps.size() >= MAX_TPS) {
+            return false; // Rate limit exceeded
+        }
+
+        // Add current request timestamp
+        requestTimestamps.addLast(currentTime);
+        return true; // Within rate limit
+    }
+
     @Override
     public Packet handlePacket(InetAddress clientAddress, Packet packet) {
         String traceId = MDC.get("traceId");
+        long totalRequests = totalRequestCount.incrementAndGet();
+
+        // Check rate limit before processing
+        if (!checkRateLimit()) {
+            long droppedCount = droppedRequestCount.incrementAndGet();
+            logger.warnf("[TraceId : %s] RATE_LIMIT_EXCEEDED - Request from %s dropped (Total requests: %d, Dropped: %d, Limit: %d TPS)",
+                    traceId, clientAddress.getHostAddress(), totalRequests, droppedCount, MAX_TPS);
+
+            // Log additional details every 100 dropped requests
+            if (droppedCount % 100 == 0) {
+                logger.errorf("[TraceId : %s] RATE_LIMIT_ALERT - %d requests dropped so far. Current rate exceeds %d TPS limit",
+                        traceId, droppedCount, MAX_TPS);
+            }
+
+            return null; // Drop the request
+        }
+
         logger.infof("[TraceId : %s] Received accounting packet from %s", traceId, clientAddress.getHostAddress());
 
         if (!(packet instanceof AccountingRequest)) {
