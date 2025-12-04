@@ -18,7 +18,7 @@ import static io.quarkus.arc.ComponentsProvider.LOG;
 
 @ApplicationScoped
 public class RadiusAccountingProducer {
-
+ // todo need to improve performance and any fail case how to handle pls give me best solution
     Emitter<AccountingRequestDto> accountingEmitter;
 
     @Inject
