@@ -1,0 +1,85 @@
+quarkus:
+  http:
+    http2: true
+    port: 8088
+    idle-timeout: 30s
+    read-timeout: 30s
+  log:
+    level: INFO
+    console:
+      format: "%d{yyyy-MM-dd HH:mm:ss,SSS} %-5p [%c{3.}] (%t) %s%e%n"
+  console:
+    color: true
+
+  vertx:
+    event-loops-pool-size: 16
+    warning-exception-time: 10s
+    max-event-loop-execute-time: 5s
+    max-worker-execute-time: 60s
+    prefer-native-transport: true
+    caching: false
+
+radius:
+  # Authentication Server
+  auth:
+    enabled: true
+    port: 1812
+    bind-address: 127.0.0.1
+
+  # Accounting Server
+  accounting:
+    enabled: true
+    port: 1813
+    bind-address: 127.0.0.1
+
+  # Shared Configuration
+  shared-secret: sharedsecret
+  fail-on-startup-error: true
+
+#radius:
+#  server:
+#    port: 1812
+#    shared-secret: sharedsecret
+#    accounting:
+#      port: 1813
+
+client:
+  coa-port: 3799
+  address: 127.0.0.1
+  shared-secret: sharedsecret
+
+
+auth:
+  service:
+    url: https://aeb53274042be477aba79f9076056316-ee9e05124271e8a5.elb.ap-southeast-2.amazonaws.com/airtel-aaa-auth-management-service/api/users/authenticate
+mp:
+  messaging:
+    outgoing:
+      accounting-events:
+        connector: smallrye-kafka
+        topic: accounting
+        bootstrap.servers: localhost:9092
+        value.serializer: io.quarkus.kafka.client.serialization.ObjectMapperSerializer
+        key.serializer: org.apache.kafka.common.serialization.StringSerializer
+        acks: all
+        retries: 2147483647
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 100
+        compression.type: snappy
+        batch.size: 16384
+        linger.ms: 10
+
+    incoming:
+      accounting-resp-events:
+        connector: smallrye-kafka
+        topic: accounting-response
+        bootstrap.servers: localhost:9092
+        group.id: accounting-consumer-group
+        value.deserializer: io.quarkus.kafka.client.serialization.ObjectMapperDeserializer
+        key.deserializer: org.apache.kafka.common.serialization.StringDeserializer
+        auto.offset.reset: earliest
+        enable.auto.commit: false
+        max.poll.records: 100
+        max.poll.interval.ms: 300000
+        session.timeout.ms: 30000
+        failure-strategy: ignore

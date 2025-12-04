@@ -1,0 +1,97 @@
+quarkus:
+  # Enable HTTP/2 for better multiplexing
+  http:
+    http2: true
+    port: 8080
+    # Connection timeouts
+    idle-timeout: 30s
+    read-timeout: 30s
+  log:
+    level: INFO
+    console:
+      format: "%d{yyyy-MM-dd HH:mm:ss,SSS} %-5p [%c{3.}] (%t) %s%e%n"
+  console:
+    color: true
+
+
+  # ===== VERT.X EVENT LOOP CONFIGURATION =====
+  vertx:
+    # Optimize event loops (typically CPU cores * 2)
+    event-loops-pool-size: 16
+    max-worker-execute-time: 60s
+    # Internal blocking pool
+    internal-blocking-pool-size: 30
+
+
+  rest-client:
+    # Main external API client
+    external-api:
+      url: ${EXTERNAL_API_URL:http://localhost:8083/api/users}
+      connection-pool-size: 200
+      connect-timeout: 5000
+      read-timeout: 15000
+      max-redirects: 3
+      # HTTP/2 for REST clients
+      http2: true
+    health:
+      enabled: true
+
+radius:
+  # Authentication Server
+  auth:
+    enabled: true
+    port: 1812
+    bind-address: 172.20.53.249
+
+  # Accounting Server
+  accounting:
+    enabled: true
+    port: 1813
+    bind-address: 172.20.53.249
+
+  # Shared Configuration
+  shared-secret: sharedsecret
+  fail-on-startup-error: true
+
+client:
+  coa-port: 3799
+  address: 172.20.53.249
+  shared-secret: sharedsecret
+
+auth:
+  service:
+    url: https://aeb53274042be477aba79f9076056316-ee9e05124271e8a5.elb.ap-southeast-2.amazonaws.com/airtel-aaa-auth-management-service/api/users/authenticate
+
+kafka:
+  bootstrap:
+    servers: confluent-ctrl-0-svc.rkafkacone.svc.cluster.local:9092
+
+mp:
+  messaging:
+    outgoing:
+      accounting-events:
+        connector: smallrye-kafka
+        topic: accounting
+        value.serializer: io.quarkus.kafka.client.serialization.ObjectMapperSerializer
+        key.serializer: org.apache.kafka.common.serialization.StringSerializer
+        acks: all
+        retries: 2147483647
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 100
+        compression.type: snappy
+        batch.size: 16384
+        linger.ms: 10
+
+    incoming:
+      accounting-resp-events:
+        connector: smallrye-kafka
+        topic: accounting-response
+        group.id: accounting-consumer-group
+        value.deserializer: io.quarkus.kafka.client.serialization.ObjectMapperDeserializer
+        key.deserializer: org.apache.kafka.common.serialization.StringDeserializer
+        auto.offset.reset: earliest
+        enable.auto.commit: false
+        max.poll.records: 100
+        max.poll.interval.ms: 300000
+        session.timeout.ms: 3000
+        failure-strategy: ignore

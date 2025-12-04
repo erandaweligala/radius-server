@@ -1,0 +1,193 @@
+package com.csg.airtel.aaa4j.domain.service;
+
+import com.csg.airtel.aaa4j.common.constant.AuthServiceConstants;
+import com.csg.airtel.aaa4j.common.util.TraceIdGenerator;
+import com.csg.airtel.aaa4j.domain.model.UserDetails;
+import com.csg.airtel.aaa4j.external.client.AuthManagementServiceClient;
+import jakarta.enterprise.context.ApplicationScoped;
+import org.aaa4j.radius.core.attribute.Attribute;
+import org.aaa4j.radius.core.attribute.IntegerData;
+import org.aaa4j.radius.core.attribute.TextData;
+import org.aaa4j.radius.core.attribute.attributes.*;
+import org.aaa4j.radius.core.packet.Packet;
+import org.aaa4j.radius.core.packet.packets.AccessAccept;
+import org.aaa4j.radius.core.packet.packets.AccessReject;
+import org.aaa4j.radius.core.packet.packets.AccessRequest;
+import org.aaa4j.radius.server.RadiusServer;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
+import org.slf4j.MDC;
+
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+
+@ApplicationScoped
+public class RadiusAuthenticationHandler implements RadiusServer.Handler {
+    private static final Logger logger = Logger.getLogger(RadiusAuthenticationHandler.class);
+
+    @ConfigProperty(name = "radius.shared-secret")
+    String sharedSecret;
+
+    final AuthManagementServiceClient authManagementServiceClient;
+
+    public RadiusAuthenticationHandler(AuthManagementServiceClient authManagementServiceClient) {
+        this.authManagementServiceClient = authManagementServiceClient;
+    }
+
+    @Override
+        public byte[] handleClient(InetAddress clientAddress) {
+            return sharedSecret.getBytes(StandardCharsets.UTF_8);
+        }
+
+        @Override
+        public Packet handlePacket(InetAddress clientAddress, Packet requestPacket) {
+            String traceId = TraceIdGenerator.generateTraceId();
+            MDC.put(AuthServiceConstants.TRACE_ID, traceId);
+
+            try {
+                logger.infof("[{}] handlePacket() triggered — processing RADIUS request", traceId);
+                logPacketReceived(traceId, clientAddress, requestPacket);
+
+                if (!(requestPacket instanceof AccessRequest)) {
+                    logger.warnf("[{}] Unsupported packet type received: {}", traceId, requestPacket.getClass().getSimpleName());
+                    return null;
+                }
+
+                return handleAccessRequest(traceId, (AccessRequest) requestPacket);
+
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                logger.errorf("[{}] Packet processing interrupted: {}", traceId, ie.getMessage(), ie);
+                return buildAccessReject("Request interrupted");
+
+            } catch (Exception e) {
+                logger.errorf("[{}] Error while processing packet: {}", traceId, e.getMessage(), e);
+                return buildAccessReject("Internal server error occurred. Please try again later.");
+            } finally {
+                MDC.remove(AuthServiceConstants.TRACE_ID);
+                MDC.remove(AuthServiceConstants.PARAM_USER_NAME);
+            }
+        }
+
+        private void logPacketReceived(String traceId, InetAddress clientAddress, Packet packet) {
+            logger.infof("[{}] Received packet from {}: {}",
+                    traceId, clientAddress.getHostAddress(), packet.getClass().getSimpleName());
+        }
+
+        private Packet handleAccessRequest(String traceId, AccessRequest requestPacket) throws InterruptedException {
+            if (isMissingMessageAuthenticator(requestPacket)) {
+                logger.warnf("[{}] Rejecting request without Message-Authenticator", traceId);
+                return buildAccessReject("Missing Message-Authenticator");
+            }
+
+            Optional<UserName> userNameAttr = requestPacket.getAttribute(UserName.class);
+            Optional<ChapChallenge> chapChallengeAttribute = requestPacket.getAttribute(ChapChallenge.class);
+            Optional<ChapPassword> chapPasswordAttribute = requestPacket.getAttribute(ChapPassword.class);
+            Optional<NasIpAddress> nasIpAddressAttribute = requestPacket.getAttribute(NasIpAddress.class);
+
+            if (userNameAttr.isEmpty()) {
+                logger.warnf("[{}] Missing required attributes in request", traceId);
+                return buildAccessReject("Missing required attributes");
+            }
+
+            String username = userNameAttr.get().getData().getValue();
+            MDC.put(AuthServiceConstants.PARAM_USER_NAME, username);
+
+            String password = extractUserPassword(requestPacket);
+            String chapChallenge = chapChallengeAttribute .map(attr -> bytesToHex(attr.getData().getValue())) .orElse(null);
+            String chapPassword = chapPasswordAttribute .map(attr -> bytesToHex(attr.getData().getValue())) .orElse(null);
+            String nasIpAddress = nasIpAddressAttribute
+                    .map(attr -> ((Inet4Address) attr.getData().getValue()).getHostAddress())
+                    .orElse(null);
+
+
+
+
+            logger.infof("[{}] Authentication request for user: {}", traceId, username);
+            return authenticateUser(traceId, username, password, chapChallenge, chapPassword, nasIpAddress);
+        }
+
+        private Packet authenticateUser(String traceId, String username, String password,
+                                        String chapChallenge, String chapPassword, String nasIpAddress) throws InterruptedException {
+
+            UserDetails userDetails = authManagementServiceClient.authenticate(username, password, chapChallenge, chapPassword, nasIpAddress);
+            logger.infof("[{}] Authorization result for user '{}': {}", traceId, username, userDetails.getIsAuthorized());
+
+            if (!userDetails.getIsEnoughBalance()) {
+                logger.warnf("[{}] Authentication failed — user don't have enough quota: {}", traceId, username);
+                return buildAccessReject("User don't have enough quota");
+            }
+
+            if (!userDetails.getIsActive()) {
+                logger.warnf("[{}] Authentication failed — user inactive: {}", traceId, username);
+                return buildAccessReject("User is inactive");
+            }
+
+            if (userDetails.getIsAuthorized()) {
+                logger.infof("[{}] Authentication successful for user: {}", traceId, username);
+                return buildAccessAccept(username, userDetails.getAttributes());
+            }
+
+            logger.warnf("[{}] Authentication failed — invalid credentials: {}", traceId, username);
+            return buildAccessReject("Invalid username or password");
+        }
+
+        private boolean isMissingMessageAuthenticator(Packet packet) {
+            return packet.getAttribute(MessageAuthenticator.class).isEmpty();
+        }
+
+        private String extractUserPassword(Packet packet) {
+            return packet.getAttribute(UserPassword.class)
+                    .map(attr -> new String(attr.getData().getValue(), StandardCharsets.UTF_8))
+                    .orElse(null);
+        }
+
+        private Packet buildAccessReject(String message) {
+            return new AccessReject(List.of(
+                    new MessageAuthenticator(),
+                    new ReplyMessage(new TextData(message))
+            ));
+        }
+
+        private Packet buildAccessAccept(String username, Map<String, String> userAttrs) {
+            List<Attribute<?>> attributes = new ArrayList<>();
+            attributes.add(new MessageAuthenticator());
+            attributes.add(new ReplyMessage(new TextData("Welcome, " + username + "!")));
+            attributes.add(new UserName(new TextData(username)));
+
+            if (userAttrs != null) {
+                userAttrs.forEach((key, value) -> {
+                    switch (key.toUpperCase()) {
+                        case "SESSION_TIMEOUT":
+                            attributes.add(new SessionTimeout(new IntegerData(Integer.parseInt(value))));
+                            break;
+                        case "IDLE_TIMEOUT":
+                            attributes.add(new IdleTimeout(new IntegerData(Integer.parseInt(value))));
+                            break;
+                        default:
+                            break;
+                    }
+                });
+            }
+
+            return new AccessAccept(attributes);
+        }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+}
+
+
+
+
+
+
+
+

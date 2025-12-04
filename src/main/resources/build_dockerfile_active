@@ -1,0 +1,36 @@
+FROM maven:3.9.4-eclipse-temurin-17 as owasp
+RUN mkdir -p /opt/app
+ENV DC_DATA_DIR=/tmp/dependency-check-data
+ENV NVD_API_KEY=e16fcdb5-7255-4e2a-b71d-ab444f913b34
+ENV MAVEN_OPTS="-Xmx2g"
+
+# Start clean to avoid corrupted cache causing NPEs
+RUN rm -rf "${DC_DATA_DIR}" && mkdir -p "${DC_DATA_DIR}"
+
+COPY . /opt/app
+WORKDIR /opt/app/
+
+# Run Dependency-Check with throttling and cache
+
+RUN mvn -B org.owasp:dependency-check-maven:check \
+      -Dformat=HTML \
+      -DoutputDirectory=/tmp \
+      -DnvdApiKey=${NVD_API_KEY} \
+      -DdataDirectory=${DC_DATA_DIR} \
+      -DnvdApiDelay=8000 \
+      -DnvdValidForHours=24 \
+      -DconnectionTimeout=600000
+
+RUN cat /opt/app/target/dependency-check-report.html
+
+
+FROM 10.200.140.150:5000/java-build:LANGUAGE_VERSION as final
+#FROM eclipse-temurin:21.0.8_9-jdk-ubi9-minimal as final
+RUN echo "Java version is set to version LANGUAGE_VERSION"
+RUN echo "Build tool is set to BUILD_TOOL"
+RUN echo "Starting code build"
+RUN java -version
+COPY --from=owasp /opt/app/target/dependency-check-report.html /tmp/
+COPY . /tmp
+WORKDIR /tmp
+RUN BUILD_CMD

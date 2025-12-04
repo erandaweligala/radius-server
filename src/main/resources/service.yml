@@ -1,0 +1,22 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: airtel-aaa-radius-server-service 
+  namespace: airtel-aaa
+spec:
+  selector:
+    app: airtel-aaa-radius-server
+  ports:
+  - name: auth
+    port: 1812
+    protocol: UDP
+    targetPort: 1812
+  - name: acct
+    port: 1813
+    protocol: UDP
+    targetPort: 1813
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+  type: ClusterIP

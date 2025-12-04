@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airtel-aaa-radius-server-deployment
+  namespace: airtel-aaa
+spec:
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: airtel-aaa-radius-server
+  replicas: NUMBER_OF_REPLICAS
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        linkerd.io/inject: disabled
+      creationTimestamp: null
+      labels:
+        app: airtel-aaa-radius-server
+    spec:
+      containers:
+      - args:
+        - -c
+        - java $JAVA_OPTS -Djava.security.egd=file:/dev/./urandom -jar /app/airtel-aaa-radius-server.jar
+          --spring.config.location=/app/application.yml
+        command:
+        - /bin/sh
+        image: 10.200.140.150:5000/airtel-aaa-radius-server:DOCKER_IMAGE_TAG
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 10
+          periodSeconds: 20
+          successThreshold: 1
+          tcpSocket:
+            port: 8080
+          timeoutSeconds: 1
+        name: airtel-aaa-radius-server
+        ports:
+        - containerPort: 1812
+          protocol: UDP
+        readinessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 10
+          periodSeconds: 20
+          successThreshold: 1
+          tcpSocket:
+            port: 8080
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: 250m
+            memory: 1Gi
+          requests:
+            cpu: 150m
+            memory: 512Mi
+        startupProbe:
+          failureThreshold: 3
+          periodSeconds: 20
+          successThreshold: 1
+          tcpSocket:
+            port: 8080
+          timeoutSeconds: 1
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /app/application.yml
+          name: properties-file
+          subPath: application.yml
+        - mountPath: /var/log/dte/
+          name: logs-storage
+          subPath: airtel-aaa-radius-server
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: airtel-aaa-radius-server-configmap
+        name: properties-file
+      - name: logs-storage
+        persistentVolumeClaim:
+          claimName: logs-pvc-airtel-aaa
+
+
