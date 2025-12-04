@@ -23,7 +23,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @ApplicationScoped
 public class RadiusAccountingHandler implements RadiusServer.Handler {
-    //todo  is  check this code handle 500 tps handle
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
     private static final int MAX_TPS = 500; // Maximum 500 transactions per second
     private static final long REFILL_INTERVAL_NS = 1_000_000_000L; // 1 second in nanoseconds
@@ -74,7 +73,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
             if (availableTokens.compareAndSet(tokens, tokens - 1)) {
                 return true; // Token acquired
             }
-            // CAS failed, retry
         }
     }
 
@@ -83,7 +81,7 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
         String traceId = MDC.get("traceId");
         long totalRequests = totalRequestCount.incrementAndGet();
 
-        // Check rate limit before processing - O(1) token bucket
+        // Check rate limit before processing
         if (!checkRateLimit()) {
             long droppedCount = droppedRequestCount.incrementAndGet();
 
@@ -96,7 +94,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
             return null; // Drop the request
         }
 
-        // Only log at DEBUG level to reduce overhead in production
         if (logger.isDebugEnabled()) {
             logger.debugf("[TraceId : %s] Received accounting packet from %s", traceId, clientAddress.getHostAddress());
         }
@@ -128,7 +125,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
 
             radiusAccountingProducer.produceAccountingEvent(accountingRequest);
 
-            // Only log at DEBUG level to reduce overhead in production
             if (logger.isDebugEnabled()) {
                 logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
                         traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);

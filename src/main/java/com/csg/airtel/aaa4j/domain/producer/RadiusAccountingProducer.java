@@ -102,11 +102,4 @@ public class RadiusAccountingProducer {
         return CompletableFuture.completedFuture(null);
     }
 
-    /**
-     * Get current consecutive failure count
-     */
-    public long getConsecutiveFailures() {
-        return consecutiveFailures.get();
-    }
-
 }
