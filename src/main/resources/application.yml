@@ -69,18 +69,6 @@ mp:
         batch.size: 16384
         linger.ms: 10
 
-      # Dead Letter Queue for permanently failed messages
-      accounting-events-dlq:
-        connector: smallrye-kafka
-        topic: accounting-dlq
-        bootstrap.servers: localhost:9092
-        value.serializer: io.quarkus.kafka.client.serialization.ObjectMapperSerializer
-        key.serializer: org.apache.kafka.common.serialization.StringSerializer
-        acks: all
-        retries: 3
-        enable.idempotence: true
-        compression.type: snappy
-
     incoming:
       accounting-resp-events:
         connector: smallrye-kafka
@@ -95,19 +83,3 @@ mp:
         max.poll.interval.ms: 300000
         session.timeout.ms: 30000
         failure-strategy: ignore
-
-# Accounting publish failure handling configuration
-accounting:
-  failure:
-    # Circuit breaker settings
-    circuit-breaker:
-      failure-threshold: 5          # Number of consecutive failures before opening circuit
-      timeout-seconds: 60           # Seconds to wait before testing if service recovered
-
-    # Retry settings
-    max-retry-attempts: 3           # Maximum retry attempts per message
-    retry-delay-ms: 1000            # Initial retry delay (exponential backoff applied)
-
-    # Queue settings
-    queue:
-      max-size: 10000               # Maximum in-memory queue size for failed messages
