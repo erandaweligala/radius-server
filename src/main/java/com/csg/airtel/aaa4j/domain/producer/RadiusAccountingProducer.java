@@ -1,5 +1,6 @@
 package com.csg.airtel.aaa4j.domain.producer;
 
+import com.csg.airtel.aaa4j.domain.failurehandling.PublishFailureHandler;
 import com.csg.airtel.aaa4j.domain.model.AccountingRequestDto;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -18,8 +19,11 @@ import static io.quarkus.arc.ComponentsProvider.LOG;
 
 @ApplicationScoped
 public class RadiusAccountingProducer {
-    // todo need to implement any fail to publish case how to handle pls give me best solution without any perfomance issues
+
     Emitter<AccountingRequestDto> accountingEmitter;
+
+    @Inject
+    PublishFailureHandler failureHandler;
 
     @Inject
     public RadiusAccountingProducer(@Channel("accounting-events") Emitter<AccountingRequestDto> accountingEmitter) {
@@ -28,7 +32,6 @@ public class RadiusAccountingProducer {
 
     public CompletionStage<Void> produceAccountingEvent(AccountingRequestDto request) {
         try {
-
             String partitionKey = String.format("%s-%s", request.sessionId(), request.nasIP());
 
             if (LOG.isDebugEnabled()) {
@@ -36,19 +39,37 @@ public class RadiusAccountingProducer {
                         request.sessionId(), request.nasIP(), request.actionType());
             }
 
+            // Check circuit breaker state
+            if (failureHandler.isCircuitOpen()) {
+                LOG.warnf("Circuit breaker is OPEN, storing message for retry: session=%s",
+                    request.sessionId());
+                failureHandler.storeFailed(request, partitionKey,
+                    new Exception("Circuit breaker is OPEN"));
+                return CompletableFuture.completedFuture(null);
+            }
+
             var metadata = OutgoingKafkaRecordMetadata.<String>builder()
                     .withKey(partitionKey)
                     .build();
+
             CompletableFuture<Void> future = new CompletableFuture<>();
 
             var message = Message.of(request)
                     .addMetadata(metadata)
                     .withAck(() -> {
+                        failureHandler.recordSuccess();
                         future.complete(null);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debugf("Successfully published accounting event: session=%s",
+                                request.sessionId());
+                        }
                         return CompletableFuture.completedFuture(null);
                     })
                     .withNack(throwable -> {
-                        LOG.errorf("Failed accounting event: %s", throwable.getMessage());
+                        LOG.warnf("Failed to publish accounting event: session=%s, error=%s",
+                            request.sessionId(), throwable.getMessage());
+                        failureHandler.recordFailure();
+                        failureHandler.storeFailed(request, partitionKey, throwable);
                         future.completeExceptionally(throwable);
                         return CompletableFuture.completedFuture(null);
                     });
@@ -58,9 +79,11 @@ public class RadiusAccountingProducer {
 
         } catch (Exception e) {
             LOG.errorf(e, "Error producing accounting event: %s", request.sessionId());
+            String partitionKey = String.format("%s-%s", request.sessionId(), request.nasIP());
+            failureHandler.recordFailure();
+            failureHandler.storeFailed(request, partitionKey, e);
             return CompletableFuture.failedFuture(e);
         }
-
     }
 
 }
