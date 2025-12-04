@@ -24,6 +24,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @ApplicationScoped
 public class RadiusAccountingHandler implements RadiusServer.Handler {
+
+    //todo this RadiusAccountingHandler have any overhead methods ?
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
     private static final int MAX_TPS = 500; // Maximum 500 transactions per second
     private static final long WINDOW_SIZE_MS = 1000; // 1 second window
