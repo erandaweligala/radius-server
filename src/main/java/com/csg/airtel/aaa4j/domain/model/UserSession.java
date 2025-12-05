@@ -2,28 +2,20 @@ package com.csg.airtel.aaa4j.domain.model;
 
 import java.time.Instant;
 
-/**
- * Represents a user session in the RADIUS server.
- * <p>
- * Thread-safety note: Mutable fields are marked volatile to ensure visibility
- * across threads if instances are shared (e.g., cached sessions). For compound
- * operations involving multiple fields, external synchronization may be required.
- * </p>
- */
 public class UserSession {
-    private volatile Long id;
-    private volatile String sessionId;
-    private volatile String username;
-    private volatile String nasIP;
-    private volatile String nasPortId;
-    private volatile String framedIPAddress;
-    private volatile Long inputOctets;
-    private volatile Long outputOctets;
-    private volatile Long sessionTime;
-    private volatile String status; // ACTIVE, STOPPED
-    private volatile Instant startTime;
-    private volatile Instant lastUpdateTime;
-    private volatile Instant endTime;
+    private Long id;
+    private String sessionId;
+    private String username;
+    private String nasIP;
+    private String nasPortId;
+    private String framedIPAddress;
+    private Long inputOctets;
+    private Long outputOctets;
+    private Long sessionTime;
+    private String status; // ACTIVE, STOPPED
+    private Instant startTime;
+    private Instant lastUpdateTime;
+    private Instant endTime;
 
     public UserSession() {}
 

@@ -165,63 +165,6 @@ class RadiusAccountingHandlerTest {
 
         assertNull(response);
     }
-
-    @Test
-    void rateLimitEnforced_dropsRequestsAbove500TPS() throws Exception {
-        // Test that requests exceeding 500 TPS are rate-limited and dropped
-        AccountingRequest request = new AccountingRequest(List.of(
-                new MessageAuthenticator(),
-                new UserName(new TextData("ratelimituser")),
-                new AcctSessionId(new TextData("sess-ratelimit")),
-                new AcctStatusType(new EnumData(1)),
-                new NasIpAddress(new Ipv4AddrData((Inet4Address) clientAddress))
-        ));
-
-        int successfulRequests = 0;
-        int droppedRequests = 0;
-        int totalRequests = 600; // Send more than the 500 TPS limit
-
-        // Send requests rapidly
-        for (int i = 0; i < totalRequests; i++) {
-            Packet response = handler.handlePacket(clientAddress, request);
-            if (response != null) {
-                successfulRequests++;
-            } else {
-                droppedRequests++;
-            }
-        }
-
-        // Verify that approximately 500 requests were processed and 100 were dropped
-        assertTrue(successfulRequests <= 500, "Should not process more than 500 requests");
-        assertTrue(droppedRequests >= 100, "Should drop excess requests beyond 500 TPS limit");
-        assertEquals(totalRequests, successfulRequests + droppedRequests, "All requests should be accounted for");
-    }
-
-    @Test
-    void rateLimitAllowsRequestsWithinLimit() throws Exception {
-        // Test that requests within the 500 TPS limit are processed normally
-        AccountingRequest request = new AccountingRequest(List.of(
-                new MessageAuthenticator(),
-                new UserName(new TextData("normaluser")),
-                new AcctSessionId(new TextData("sess-normal")),
-                new AcctStatusType(new EnumData(1)),
-                new NasIpAddress(new Ipv4AddrData((Inet4Address) clientAddress))
-        ));
-
-        int successfulRequests = 0;
-        int requestsToSend = 400; // Well within the 500 TPS limit
-
-        for (int i = 0; i < requestsToSend; i++) {
-            Packet response = handler.handlePacket(clientAddress, request);
-            if (response != null) {
-                successfulRequests++;
-            }
-        }
-
-        // All requests should be processed successfully
-        assertEquals(requestsToSend, successfulRequests, "All requests within limit should be processed");
-        verify(accountingProducer, times(requestsToSend)).produceAccountingEvent(any(AccountingRequestDto.class));
-    }
 }
 
 

@@ -22,7 +22,6 @@ import java.util.List;
 @Startup
 public class RadiusServerConfiguration {
 
-    //todo implement fixed sonar issues
     private static final Logger logger = Logger.getLogger(RadiusServerConfiguration.class);
 
     private final RadiusServerConfig config;

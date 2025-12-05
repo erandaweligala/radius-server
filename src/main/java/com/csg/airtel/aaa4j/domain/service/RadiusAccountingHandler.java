@@ -19,12 +19,11 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantLock;
 
 
 @ApplicationScoped
 public class RadiusAccountingHandler implements RadiusServer.Handler {
-
+    // todo pls check any  race condition pls resolve without any perfomance impact
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
     private static final int MAX_TPS = 500; // Maximum 500 transactions per second
     private static final long REFILL_INTERVAL_NS = 1_000_000_000L; // 1 second in nanoseconds
@@ -34,8 +33,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
 
     private final RadiusAccountingProducer radiusAccountingProducer;
 
-    // Rate limiter state - using ReentrantLock for refill to prevent race conditions
-    private final ReentrantLock refillLock = new ReentrantLock();
     private final AtomicLong lastRefillTime = new AtomicLong(System.nanoTime());
     private final AtomicLong availableTokens = new AtomicLong(MAX_TPS);
     private final AtomicLong droppedRequestCount = new AtomicLong(0);
@@ -52,10 +49,8 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     }
 
     /**
-     * Refills tokens every second and checks if a token is available.
-     * Uses tryLock() for non-blocking refill to prevent thread contention.
-     * Token acquisition uses CAS with spin-wait for optimal performance.
      *
+     * Refills tokens every second and checks if a token is available
      * @return true if request is within limit, false if rate limit exceeded
      */
     private boolean checkRateLimit() {
@@ -63,26 +58,14 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
         long lastRefill = lastRefillTime.get();
         long timeSinceRefill = now - lastRefill;
 
-        // Refill tokens if 1 second has passed (using tryLock to avoid blocking)
+        // Refill tokens if 1 second has passed
         if (timeSinceRefill >= REFILL_INTERVAL_NS) {
-            if (refillLock.tryLock()) {
-                try {
-                    // Double-check inside lock to prevent duplicate refills
-                    long currentLastRefill = lastRefillTime.get();
-                    if (now - currentLastRefill >= REFILL_INTERVAL_NS) {
-                        // Order matters: set tokens first, then update timestamp
-                        // This ensures threads see new tokens after seeing new timestamp
-                        availableTokens.set(MAX_TPS);
-                        lastRefillTime.set(now);
-                    }
-                } finally {
-                    refillLock.unlock();
-                }
+            if (lastRefillTime.compareAndSet(lastRefill, now)) {
+                availableTokens.set(MAX_TPS);
             }
-            // If tryLock fails, another thread is handling refill - proceed to acquire token
         }
 
-        // Try to acquire a token using optimistic locking with spin-wait
+        // Try to acquire a token using optimistic locking
         while (true) {
             long tokens = availableTokens.get();
             if (tokens <= 0) {
@@ -91,38 +74,27 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
             if (availableTokens.compareAndSet(tokens, tokens - 1)) {
                 return true; // Token acquired
             }
-            // CAS failed due to contention - use spin-wait hint for better CPU efficiency
-            Thread.onSpinWait();
         }
     }
 
     @Override
     public Packet handlePacket(InetAddress clientAddress, Packet packet) {
-        // Get trace ID from MDC, generate new one if missing to ensure request tracking
         String traceId = MDC.get("traceId");
-        if (traceId == null || traceId.isBlank()) {
-            traceId = "ACC-" + System.nanoTime();
-            MDC.put("traceId", traceId);
-        }
         long totalRequests = totalRequestCount.incrementAndGet();
 
         // Check rate limit before processing
         if (!checkRateLimit()) {
             long droppedCount = droppedRequestCount.incrementAndGet();
-
             // Only log every 100th dropped request to reduce overhead
             if (droppedCount % 100 == 0) {
                 logger.warnf("[TraceId : %s] RATE_LIMIT_ALERT - %d requests dropped so far (Total: %d, Limit: %d TPS)",
                         traceId, droppedCount, totalRequests, MAX_TPS);
             }
-
             return null; // Drop the request
         }
-
         if (logger.isDebugEnabled()) {
             logger.debugf("[TraceId : %s] Received accounting packet from %s", traceId, clientAddress.getHostAddress());
         }
-
         if (!(packet instanceof AccountingRequest)) {
             logger.warnf("[TraceId : %s] Non-accounting packet received from %s", traceId, clientAddress.getHostAddress());
             return null;
@@ -137,18 +109,15 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
             }
 
             AccountingRequestDto.ActionType actionType = determineActionType(statusOpt.get());
-
             // Extract common attributes
             CommonAttributes commonAttrs = extractCommonAttributes(packet, clientAddress);
-
             // Extract scenario-specific attributes based on action type
             AccountingRequestDto accountingRequest = switch (actionType) {
                 case START -> buildStartRequest(traceId, commonAttrs, packet);
                 case INTERIM_UPDATE -> buildInterimRequest(traceId, commonAttrs, packet);
                 case STOP -> buildStopRequest(traceId, commonAttrs, packet);
             };
-
-            radiusAccountingProducer.produceAccountingEvent(accountingRequest);
+             radiusAccountingProducer.produceAccountingEvent(accountingRequest);
 
             if (logger.isDebugEnabled()) {
                 logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
@@ -170,7 +139,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     private CommonAttributes extractCommonAttributes(Packet packet, InetAddress clientAddress) {
         String clientAddressStr = clientAddress.getHostAddress();
 
-        // Direct extraction to avoid Optional chaining overhead
         var sessionIdAttr = packet.getAttribute(AcctSessionId.class).orElse(null);
         String sessionId = sessionIdAttr != null ? sessionIdAttr.getData().getValue() : null;
 
@@ -313,7 +281,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
         var outputGigaWordsAttr = packet.getAttribute(AcctOutputGigawords.class).orElse(null);
         int outputGigaWords = outputGigaWordsAttr != null ? outputGigaWordsAttr.getData().getValue() : 0;
 
-        // Only log at DEBUG level to reduce overhead
         if (logger.isDebugEnabled()) {
             var terminateCauseAttr = packet.getAttribute(AcctTerminateCause.class).orElse(null);
             Integer terminateCause = terminateCauseAttr != null ? terminateCauseAttr.getData().getValue() : null;

@@ -6,15 +6,12 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-
-
 import org.eclipse.microprofile.faulttolerance.CircuitBreaker;
 import org.eclipse.microprofile.faulttolerance.Fallback;
 import org.eclipse.microprofile.faulttolerance.Timeout;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.eclipse.microprofile.reactive.messaging.Message;
-
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -28,11 +25,6 @@ public class RadiusAccountingProducer {
     private final Emitter<AccountingRequestDto> accountingEmitter;
     private final Counter failureCounter;
     private final Counter fallbackCounter;
-
-    // Tracks recent failure count for monitoring purposes
-    // Note: Due to async message acknowledgement, operations on this counter
-    // may interleave, but this is acceptable for monitoring/logging use cases.
-    // The actual circuit breaking is handled by @CircuitBreaker annotation.
     private final AtomicLong consecutiveFailures = new AtomicLong(0);
 
     @Inject
@@ -61,7 +53,6 @@ public class RadiusAccountingProducer {
                 LOG.debugf("Producing accounting event - SessionId: %s, NasIP: %s, Action: %s",
                         request.sessionId(), request.nasIP(), request.actionType());
             }
-
             var metadata = OutgoingKafkaRecordMetadata.<String>builder()
                     .withKey(partitionKey)
                     .build();
