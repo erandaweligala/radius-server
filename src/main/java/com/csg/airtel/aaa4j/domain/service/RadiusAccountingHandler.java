@@ -23,20 +23,15 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @ApplicationScoped
 public class RadiusAccountingHandler implements RadiusServer.Handler {
-    // todo pls check any  race condition pls resolve without any perfomance impact
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
-    private static final int MAX_TPS = 500; // Maximum 500 transactions per second
-    private static final long REFILL_INTERVAL_NS = 1_000_000_000L; // 1 second in nanoseconds
+
+    //todo radiusAccountingProducer if any case fail no need to response
 
     @ConfigProperty(name = "radius.shared-secret")
     String sharedSecret;
 
     private final RadiusAccountingProducer radiusAccountingProducer;
 
-    private final AtomicLong lastRefillTime = new AtomicLong(System.nanoTime());
-    private final AtomicLong availableTokens = new AtomicLong(MAX_TPS);
-    private final AtomicLong droppedRequestCount = new AtomicLong(0);
-    private final AtomicLong totalRequestCount = new AtomicLong(0);
 
     public RadiusAccountingHandler(RadiusAccountingProducer radiusAccountingProducer) {
         this.radiusAccountingProducer = radiusAccountingProducer;
@@ -48,50 +43,11 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
         return sharedSecret.getBytes(StandardCharsets.UTF_8);
     }
 
-    /**
-     *
-     * Refills tokens every second and checks if a token is available
-     * @return true if request is within limit, false if rate limit exceeded
-     */
-    private boolean checkRateLimit() {
-        long now = System.nanoTime();
-        long lastRefill = lastRefillTime.get();
-        long timeSinceRefill = now - lastRefill;
-
-        // Refill tokens if 1 second has passed
-        if (timeSinceRefill >= REFILL_INTERVAL_NS) {
-            if (lastRefillTime.compareAndSet(lastRefill, now)) {
-                availableTokens.set(MAX_TPS);
-            }
-        }
-
-        // Try to acquire a token using optimistic locking
-        while (true) {
-            long tokens = availableTokens.get();
-            if (tokens <= 0) {
-                return false; // Rate limit exceeded
-            }
-            if (availableTokens.compareAndSet(tokens, tokens - 1)) {
-                return true; // Token acquired
-            }
-        }
-    }
 
     @Override
     public Packet handlePacket(InetAddress clientAddress, Packet packet) {
         String traceId = MDC.get("traceId");
-        long totalRequests = totalRequestCount.incrementAndGet();
 
-        // Check rate limit before processing
-        if (!checkRateLimit()) {
-            long droppedCount = droppedRequestCount.incrementAndGet();
-            // Only log every 100th dropped request to reduce overhead
-            if (droppedCount % 100 == 0) {
-                logger.warnf("[TraceId : %s] RATE_LIMIT_ALERT - %d requests dropped so far (Total: %d, Limit: %d TPS)",
-                        traceId, droppedCount, totalRequests, MAX_TPS);
-            }
-            return null; // Drop the request
-        }
         if (logger.isDebugEnabled()) {
             logger.debugf("[TraceId : %s] Received accounting packet from %s", traceId, clientAddress.getHostAddress());
         }
