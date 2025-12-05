@@ -25,8 +25,6 @@ import java.util.concurrent.atomic.AtomicLong;
 public class RadiusAccountingHandler implements RadiusServer.Handler {
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
 
-    //todo radiusAccountingProducer if any case fail no need to send accounting response
-
     @ConfigProperty(name = "radius.shared-secret")
     String sharedSecret;
 
@@ -73,14 +71,21 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
                 case INTERIM_UPDATE -> buildInterimRequest(traceId, commonAttrs, packet);
                 case STOP -> buildStopRequest(traceId, commonAttrs, packet);
             };
-             radiusAccountingProducer.produceAccountingEvent(accountingRequest);
+            try {
+                // Wait for the producer to complete - if it fails, don't send accounting response
+                radiusAccountingProducer.produceAccountingEvent(accountingRequest).toCompletableFuture().join();
 
-            if (logger.isDebugEnabled()) {
-                logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
-                        traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);
+                if (logger.isDebugEnabled()) {
+                    logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
+                            traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);
+                }
+
+                return createAccountingResponse(commonAttrs.sessionId);
+            } catch (Exception e) {
+                logger.warnf("[TraceId : %s] Accounting event publish failed for session %s, not sending response to NAS",
+                        traceId, commonAttrs.sessionId);
+                return null;
             }
-
-            return createAccountingResponse(commonAttrs.sessionId);
 
         } catch (Exception e) {
             logger.errorf(e, "[TraceId : %s] Error processing accounting packet from %s",
