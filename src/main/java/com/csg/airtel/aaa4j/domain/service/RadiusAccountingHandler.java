@@ -19,11 +19,12 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 
 @ApplicationScoped
 public class RadiusAccountingHandler implements RadiusServer.Handler {
-    // todo pls check any  race condition pls resolve without any performance impact
+
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
     private static final int MAX_TPS = 500; // Maximum 500 transactions per second
     private static final long REFILL_INTERVAL_NS = 1_000_000_000L; // 1 second in nanoseconds
@@ -33,6 +34,8 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
 
     private final RadiusAccountingProducer radiusAccountingProducer;
 
+    // Rate limiter state - using ReentrantLock for refill to prevent race conditions
+    private final ReentrantLock refillLock = new ReentrantLock();
     private final AtomicLong lastRefillTime = new AtomicLong(System.nanoTime());
     private final AtomicLong availableTokens = new AtomicLong(MAX_TPS);
     private final AtomicLong droppedRequestCount = new AtomicLong(0);
@@ -49,8 +52,10 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     }
 
     /**
+     * Refills tokens every second and checks if a token is available.
+     * Uses tryLock() for non-blocking refill to prevent thread contention.
+     * Token acquisition uses CAS with spin-wait for optimal performance.
      *
-     * Refills tokens every second and checks if a token is available
      * @return true if request is within limit, false if rate limit exceeded
      */
     private boolean checkRateLimit() {
@@ -58,14 +63,26 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
         long lastRefill = lastRefillTime.get();
         long timeSinceRefill = now - lastRefill;
 
-        // Refill tokens if 1 second has passed
+        // Refill tokens if 1 second has passed (using tryLock to avoid blocking)
         if (timeSinceRefill >= REFILL_INTERVAL_NS) {
-            if (lastRefillTime.compareAndSet(lastRefill, now)) {
-                availableTokens.set(MAX_TPS);
+            if (refillLock.tryLock()) {
+                try {
+                    // Double-check inside lock to prevent duplicate refills
+                    long currentLastRefill = lastRefillTime.get();
+                    if (now - currentLastRefill >= REFILL_INTERVAL_NS) {
+                        // Order matters: set tokens first, then update timestamp
+                        // This ensures threads see new tokens after seeing new timestamp
+                        availableTokens.set(MAX_TPS);
+                        lastRefillTime.set(now);
+                    }
+                } finally {
+                    refillLock.unlock();
+                }
             }
+            // If tryLock fails, another thread is handling refill - proceed to acquire token
         }
 
-        // Try to acquire a token using optimistic locking
+        // Try to acquire a token using optimistic locking with spin-wait
         while (true) {
             long tokens = availableTokens.get();
             if (tokens <= 0) {
@@ -74,12 +91,19 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
             if (availableTokens.compareAndSet(tokens, tokens - 1)) {
                 return true; // Token acquired
             }
+            // CAS failed due to contention - use spin-wait hint for better CPU efficiency
+            Thread.onSpinWait();
         }
     }
 
     @Override
     public Packet handlePacket(InetAddress clientAddress, Packet packet) {
+        // Get trace ID from MDC, generate new one if missing to ensure request tracking
         String traceId = MDC.get("traceId");
+        if (traceId == null || traceId.isBlank()) {
+            traceId = "ACC-" + System.nanoTime();
+            MDC.put("traceId", traceId);
+        }
         long totalRequests = totalRequestCount.incrementAndGet();
 
         // Check rate limit before processing

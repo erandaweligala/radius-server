@@ -10,7 +10,10 @@ import jakarta.inject.Inject;
 public class WebClientProvider {
 
     private final Vertx vertx;
-    private WebClient webClient;
+
+    // Marked volatile to ensure visibility across threads after initialization
+    // This follows safe publication rules for objects initialized in @PostConstruct
+    private volatile WebClient webClient;
     @Inject
     public WebClientProvider(Vertx vertx) {
         this.vertx = vertx;

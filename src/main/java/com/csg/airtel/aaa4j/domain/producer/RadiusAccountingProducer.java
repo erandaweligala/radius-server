@@ -28,6 +28,11 @@ public class RadiusAccountingProducer {
     private final Emitter<AccountingRequestDto> accountingEmitter;
     private final Counter failureCounter;
     private final Counter fallbackCounter;
+
+    // Tracks recent failure count for monitoring purposes
+    // Note: Due to async message acknowledgement, operations on this counter
+    // may interleave, but this is acceptable for monitoring/logging use cases.
+    // The actual circuit breaking is handled by @CircuitBreaker annotation.
     private final AtomicLong consecutiveFailures = new AtomicLong(0);
 
     @Inject

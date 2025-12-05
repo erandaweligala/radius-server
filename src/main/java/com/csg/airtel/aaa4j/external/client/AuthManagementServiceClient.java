@@ -36,11 +36,20 @@ public class AuthManagementServiceClient {
         WebClient client = webClientProvider.getClient();
         CompletableFuture<UserDetails> future = new CompletableFuture<>();
 
-        String traceId = MDC.get(AuthServiceConstants.TRACE_ID);
+        // Track if we set the trace ID so we only remove it if we added it
+        // This prevents removing MDC context set by the caller
+        String existingTraceId = MDC.get(AuthServiceConstants.TRACE_ID);
+        boolean traceIdSetByUs = false;
+        String traceId = existingTraceId;
+
         if (traceId == null || traceId.isBlank()) {
             traceId = TraceIdGenerator.generateTraceId();
             MDC.put(AuthServiceConstants.TRACE_ID, traceId);
+            traceIdSetByUs = true;
         }
+
+        // Capture traceId for use in error handler (effectively final)
+        final String finalTraceId = traceId;
 
         // Build JSON body
         JsonObject body = new JsonObject();
@@ -77,10 +86,13 @@ public class AuthManagementServiceClient {
         try {
             return future.get(); // Blocking, you can add timeout if needed
         } catch (ExecutionException e) {
-            logger.error("[{}] {}: {}", traceId, AuthServiceConstants.MSG_INTERNAL_ERROR, e.getMessage(), e);
+            logger.error("[{}] {}: {}", finalTraceId, AuthServiceConstants.MSG_INTERNAL_ERROR, e.getMessage(), e);
             return new UserDetails(username, false, false, false, null);
         } finally {
-            MDC.remove(AuthServiceConstants.TRACE_ID);
+            // Only remove MDC if we set it (prevents removing caller's MDC context)
+            if (traceIdSetByUs) {
+                MDC.remove(AuthServiceConstants.TRACE_ID);
+            }
         }
     }
 
