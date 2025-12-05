@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class RadiusAccountingHandler implements RadiusServer.Handler {
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
 
-    //todo radiusAccountingProducer if any case fail no need to response
+    //todo radiusAccountingProducer if any case fail no need to send accounting response
 
     @ConfigProperty(name = "radius.shared-secret")
     String sharedSecret;
