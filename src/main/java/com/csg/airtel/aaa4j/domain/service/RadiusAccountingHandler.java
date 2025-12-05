@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @ApplicationScoped
 public class RadiusAccountingHandler implements RadiusServer.Handler {
+    // todo pls check any  race condition pls resolve without any performance impact
     private static final Logger logger = Logger.getLogger(RadiusAccountingHandler.class);
     private static final int MAX_TPS = 500; // Maximum 500 transactions per second
     private static final long REFILL_INTERVAL_NS = 1_000_000_000L; // 1 second in nanoseconds

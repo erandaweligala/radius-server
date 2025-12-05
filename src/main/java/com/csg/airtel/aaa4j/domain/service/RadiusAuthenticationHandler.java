@@ -26,7 +26,7 @@ import java.util.*;
 @ApplicationScoped
 public class RadiusAuthenticationHandler implements RadiusServer.Handler {
     private static final Logger logger = Logger.getLogger(RadiusAuthenticationHandler.class);
-    // todo pls check any  race condition pls resolve without any performance impact
+
     @ConfigProperty(name = "radius.shared-secret")
     String sharedSecret;
 
