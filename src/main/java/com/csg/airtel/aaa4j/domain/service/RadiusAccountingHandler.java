@@ -71,22 +71,8 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
                 case INTERIM_UPDATE -> buildInterimRequest(traceId, commonAttrs, packet);
                 case STOP -> buildStopRequest(traceId, commonAttrs, packet);
             };
-            try {
-                // Wait for the producer to complete - if it fails, don't send accounting response
-                radiusAccountingProducer.produceAccountingEvent(accountingRequest).toCompletableFuture().join();
 
-                if (logger.isDebugEnabled()) {
-                    logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
-                            traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);
-                }
-
-                return createAccountingResponse(commonAttrs.sessionId);
-            } catch (Exception e) {
-                logger.warnf("[TraceId : %s] Accounting event publish failed for session %s, not sending response to NAS",
-                        traceId, commonAttrs.sessionId);
-                return null;
-            }
-
+            return publishEventAndCreateResponse(traceId, actionType, commonAttrs, accountingRequest);
         } catch (Exception e) {
             logger.errorf(e, "[TraceId : %s] Error processing accounting packet from %s",
                     traceId, clientAddress.getHostAddress());
@@ -283,6 +269,29 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
                 yield AccountingRequestDto.ActionType.START;
             }
         };
+    }
+
+    /**
+     * Publishes the accounting event to Kafka and creates the response.
+     * Returns null if the publish fails, which signals the NAS to retry.
+     */
+    private Packet publishEventAndCreateResponse(String traceId, AccountingRequestDto.ActionType actionType,
+                                                  CommonAttributes commonAttrs, AccountingRequestDto accountingRequest) {
+        try {
+            // Wait for the producer to complete - if it fails, don't send accounting response
+            radiusAccountingProducer.produceAccountingEvent(accountingRequest).toCompletableFuture().join();
+
+            if (logger.isDebugEnabled()) {
+                logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
+                        traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);
+            }
+
+            return createAccountingResponse(commonAttrs.sessionId);
+        } catch (Exception e) {
+            logger.warnf("[TraceId : %s] Accounting event publish failed for session %s, not sending response to NAS",
+                    traceId, commonAttrs.sessionId);
+            return null;
+        }
     }
 
     private AccountingResponse createAccountingResponse(String sessionId) {
