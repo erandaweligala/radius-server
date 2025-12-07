@@ -38,10 +38,10 @@ public class RadiusAccountingProducer {
 
     @Timeout(3000) // 3 second timeout for Kafka publish operations
     @CircuitBreaker(
-            requestVolumeThreshold = 5,
+            requestVolumeThreshold = 10,
             failureRatio = 0.5,
             delay = 30000,
-            successThreshold = 2
+            successThreshold = 3
     )
     @Fallback(fallbackMethod = "fallbackProduceAccountingEvent")
     public CompletionStage<Void> produceAccountingEvent(AccountingRequestDto request) {

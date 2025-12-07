@@ -1,3 +1,4 @@
+#todo need to config hoandle 1000tps
 quarkus:
   http:
     http2: true
@@ -62,7 +63,7 @@ mp:
         value.serializer: io.quarkus.kafka.client.serialization.ObjectMapperSerializer
         key.serializer: org.apache.kafka.common.serialization.StringSerializer
         acks: all
-        retries: 2147483647
+        retries: 3
         enable.idempotence: true
         max.in.flight.requests.per.connection: 100
         compression.type: snappy

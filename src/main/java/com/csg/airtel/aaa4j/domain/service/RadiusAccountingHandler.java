@@ -18,7 +18,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 
 
 @ApplicationScoped
@@ -47,17 +46,17 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
         String traceId = MDC.get("traceId");
 
         if (logger.isDebugEnabled()) {
-            logger.debugf("[TraceId : %s] Received accounting packet from %s", traceId, clientAddress.getHostAddress());
+            logger.debugf("TraceId : %s Received accounting packet from %s", traceId, clientAddress.getHostAddress());
         }
         if (!(packet instanceof AccountingRequest)) {
-            logger.warnf("[TraceId : %s] Non-accounting packet received from %s", traceId, clientAddress.getHostAddress());
+            logger.warnf("TraceId : %s Non-accounting packet received from %s", traceId, clientAddress.getHostAddress());
             return null;
         }
 
         try {
             var statusOpt = packet.getAttribute(AcctStatusType.class);
             if (statusOpt.isEmpty()) {
-                logger.warnf("[TraceId : %s] Missing AcctStatusType attribute in packet from %s",
+                logger.warnf("TraceId : %s Missing AcctStatusType attribute in packet from %s",
                         traceId, clientAddress.getHostAddress());
                 return null;
             }
@@ -74,7 +73,7 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
 
             return publishEventAndCreateResponse(traceId, actionType, commonAttrs, accountingRequest);
         } catch (Exception e) {
-            logger.errorf(e, "[TraceId : %s] Error processing accounting packet from %s",
+            logger.errorf(e, "TraceId : %s Error processing accounting packet from %s",
                     traceId, clientAddress.getHostAddress());
             return null;
         }
@@ -130,7 +129,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
         var framedIpAttr = packet.getAttribute(FramedIpAddress.class).orElse(null);
         String framedIp = framedIpAttr != null ? framedIpAttr.getData().getValue().getHostAddress() : null;
 
-        // Only log at DEBUG level to reduce overhead
         if (logger.isDebugEnabled()) {
             logger.debugf("[TraceId : %s] START - User: %s, Session: %s, Framed-IP: %s",
                     traceId, common.userName, common.sessionId, framedIp);
@@ -232,7 +230,7 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
             var terminateCauseAttr = packet.getAttribute(AcctTerminateCause.class).orElse(null);
             Integer terminateCause = terminateCauseAttr != null ? terminateCauseAttr.getData().getValue() : null;
 
-            logger.debugf("[TraceId : %s] STOP - User: %s, Session: %s, SessionTime: %ds, " +
+            logger.debugf("TraceId : %s STOP - User: %s, Session: %s, SessionTime: %ds, " +
                             "TotalInput: %d bytes, TotalOutput: %d bytes, TerminateCause: %s",
                     traceId, common.userName, common.sessionId, sessionTime, inputOctets, outputOctets,
                     terminateCause != null ? getTerminateCauseDescription(terminateCause) : "Unknown");
@@ -278,7 +276,7 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     private Packet publishEventAndCreateResponse(String traceId, AccountingRequestDto.ActionType actionType,
                                                   CommonAttributes commonAttrs, AccountingRequestDto accountingRequest) {
         try {
-            // Wait for the producer to complete - if it fails, don't send accounting response
+
             radiusAccountingProducer.produceAccountingEvent(accountingRequest).toCompletableFuture().join();
 
             if (logger.isDebugEnabled()) {
@@ -288,7 +286,7 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
 
             return createAccountingResponse(commonAttrs.sessionId);
         } catch (Exception e) {
-            logger.warnf("[TraceId : %s] Accounting event publish failed for session %s, not sending response to NAS",
+            logger.errorf("[TraceId : %s] Accounting event publish failed for session %s, not sending response to NAS",
                     traceId, commonAttrs.sessionId);
             return null;
         }
