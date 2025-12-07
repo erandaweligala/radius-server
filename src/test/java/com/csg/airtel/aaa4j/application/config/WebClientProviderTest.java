@@ -21,12 +21,27 @@ class WebClientProviderTest {
     @Mock
     private WebClient webClient;
 
+    @Mock
+    private WebClientConfig webClientConfig;
+
     private WebClientProvider webClientProvider;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        webClientProvider = new WebClientProvider(vertx);
+
+        // Setup default config values
+        when(webClientConfig.maxPoolSize()).thenReturn(250);
+        when(webClientConfig.connectTimeout()).thenReturn(5000);
+        when(webClientConfig.idleTimeout()).thenReturn(60000);
+        when(webClientConfig.keepAlive()).thenReturn(true);
+        when(webClientConfig.pipelining()).thenReturn(true);
+        when(webClientConfig.pipeliningLimit()).thenReturn(10);
+        when(webClientConfig.http2MaxPoolSize()).thenReturn(250);
+        when(webClientConfig.http2MultiplexingLimit()).thenReturn(100);
+        when(webClientConfig.http2KeepAliveTimeout()).thenReturn(60);
+
+        webClientProvider = new WebClientProvider(vertx, webClientConfig);
     }
 
     @Test
