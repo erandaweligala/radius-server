@@ -53,10 +53,6 @@ radius:
   shared-secret: sharedsecret
   fail-on-startup-error: true
 
-# ===== ACCOUNTING TPS CONFIGURATION =====
-accounting:
-  max:
-    tps: 1000
 
 
 client:

@@ -9,6 +9,7 @@ import jakarta.inject.Inject;
 @ApplicationScoped
 public class WebClientProvider {
 
+    //todo this WebClientOptions varible values get set yml file
     private final Vertx vertx;
     private WebClient webClient;
     @Inject
@@ -43,9 +44,8 @@ public class WebClientProvider {
                 // HTTP/2 streams per connection (multiplexing)
                 .setHttp2MultiplexingLimit(100)
                 // Connection keep-alive interval
-                .setHttp2KeepAliveTimeout(60)
-                // Try HTTP/2 upgrade
-                .setTryUseCompression(true);
+                .setHttp2KeepAliveTimeout(60);
+
         this.webClient = WebClient.create(vertx, options);
     }
 
