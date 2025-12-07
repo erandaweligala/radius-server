@@ -6,45 +6,49 @@ import io.vertx.ext.web.client.WebClientOptions;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+
 @ApplicationScoped
 public class WebClientProvider {
 
-    //todo this WebClientOptions varible values get set yml file
     private final Vertx vertx;
+    private final WebClientConfig config;
     private WebClient webClient;
+
     @Inject
-    public WebClientProvider(Vertx vertx) {
+    public WebClientProvider(Vertx vertx, WebClientConfig config) {
         this.vertx = vertx;
+        this.config = config;
     }
 
     /**
-     * Initialize WebClient with connection pool settings optimized for 1000 TPS.
+     * Initialize WebClient with connection pool settings from configuration.
+     * Settings are optimized for high throughput (1000+ TPS).
      *
      * Pool sizing rationale:
-     * - HTTP/1.1 pool: 250 connections (fallback for non-HTTP/2 servers)
-     * - HTTP/2 pool: 250 connections with 100 streams each = 25,000 concurrent requests
+     * - HTTP/1.1 pool: configurable connections (fallback for non-HTTP/2 servers)
+     * - HTTP/2 pool: configurable connections with multiplexing for concurrent requests
      * - With HTTP/2 multiplexing, fewer connections needed for high throughput
      */
     @PostConstruct
     void init() {
         WebClientOptions options = new WebClientOptions()
                 // HTTP/1.1 connection pool (fallback)
-                .setMaxPoolSize(250)
-                // Connection timeout (5 seconds)
-                .setConnectTimeout(5000)
-                // Idle timeout (60 seconds) - keep connections warm
-                .setIdleTimeout(60000)
+                .setMaxPoolSize(config.maxPoolSize())
+                // Connection timeout
+                .setConnectTimeout(config.connectTimeout())
+                // Idle timeout - keep connections warm
+                .setIdleTimeout(config.idleTimeout())
                 // Keep connections alive for reuse
-                .setKeepAlive(true)
+                .setKeepAlive(config.keepAlive())
                 // Enable HTTP pipelining for HTTP/1.1
-                .setPipelining(true)
-                .setPipeliningLimit(10)
+                .setPipelining(config.pipelining())
+                .setPipeliningLimit(config.pipeliningLimit())
                 // HTTP/2 connection pool (primary for high throughput)
-                .setHttp2MaxPoolSize(250)
+                .setHttp2MaxPoolSize(config.http2MaxPoolSize())
                 // HTTP/2 streams per connection (multiplexing)
-                .setHttp2MultiplexingLimit(100)
+                .setHttp2MultiplexingLimit(config.http2MultiplexingLimit())
                 // Connection keep-alive interval
-                .setHttp2KeepAliveTimeout(60);
+                .setHttp2KeepAliveTimeout(config.http2KeepAliveTimeout());
 
         this.webClient = WebClient.create(vertx, options);
     }

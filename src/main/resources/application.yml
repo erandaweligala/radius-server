@@ -49,6 +49,27 @@ auth:
   service:
     url: https://aeb53274042be477aba79f9076056316-ee9e05124271e8a5.elb.ap-southeast-2.amazonaws.com/airtel-aaa-auth-management-service/api/users/authenticate
 
+# WebClient connection pool settings optimized for 1000+ TPS
+webclient:
+  # HTTP/1.1 connection pool size (fallback for non-HTTP/2 servers)
+  max-pool-size: 250
+  # Connection timeout in milliseconds
+  connect-timeout: 5000
+  # Idle timeout in milliseconds - keep connections warm
+  idle-timeout: 60000
+  # Keep connections alive for reuse
+  keep-alive: true
+  # Enable HTTP pipelining for HTTP/1.1
+  pipelining: true
+  # HTTP pipelining limit
+  pipelining-limit: 10
+  # HTTP/2 connection pool size (primary for high throughput)
+  http2-max-pool-size: 250
+  # HTTP/2 streams per connection (multiplexing)
+  http2-multiplexing-limit: 100
+  # HTTP/2 connection keep-alive interval in seconds
+  http2-keep-alive-timeout: 60
+
 mp:
   messaging:
     outgoing:
