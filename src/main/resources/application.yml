@@ -38,6 +38,11 @@ radius:
   shared-secret: sharedsecret
   fail-on-startup-error: true
 
+# Accounting TPS limit (default: 1000 TPS)
+accounting:
+  max:
+    tps: 1000
+
 #radius:
 #  server:
 #    port: 1812
