@@ -21,7 +21,7 @@ import static io.quarkus.arc.ComponentsProvider.LOG;
 
 @ApplicationScoped
 public class RadiusAccountingProducer {
-
+// todo this method check 1000tps handle
     private final Emitter<AccountingRequestDto> accountingEmitter;
     private final Counter failureCounter;
     private final Counter fallbackCounter;

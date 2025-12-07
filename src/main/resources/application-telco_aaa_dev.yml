@@ -1,11 +1,8 @@
-# ===== 1000 TPS PRODUCTION CONFIGURATION =====
-# Optimized for handling 1000 transactions per second in production
 quarkus:
   # Enable HTTP/2 for better multiplexing
   http:
     http2: true
     port: 8080
-    # Connection timeouts
     idle-timeout: 30s
     read-timeout: 30s
   log:
@@ -18,33 +15,23 @@ quarkus:
 
   # ===== VERT.X HIGH THROUGHPUT CONFIGURATION (1000 TPS) =====
   vertx:
-    # Event loop threads: handles all I/O operations
-    # For 1000 TPS: 32-64 threads recommended (depends on CPU cores)
     event-loops-pool-size: 64
     max-worker-execute-time: 60s
-    # Blocking pool for external HTTP calls (auth service, CoA)
-    # Size formula: peak_concurrent_requests * avg_latency_seconds
-    # For 1000 TPS with 100ms avg latency: 1000 * 0.1 = 100 threads
     internal-blocking-pool-size: 150
-    # Warning threshold for slow operations
     warning-exception-time: 10s
     max-event-loop-execute-time: 5s
-    # Enable native transport (epoll on Linux) for better performance
     prefer-native-transport: true
 
 
-  # ===== REST CLIENT CONFIGURATION (1000 TPS) =====
   rest-client:
-    # Main external API client for authentication
+    # Main external API client
     external-api:
-      url: ${EXTERNAL_API_URL:http://localhost:8083/api/users}
-      # Connection pool sized for 1000 TPS
-      # With HTTP/2 multiplexing: fewer connections needed
-      connection-pool-size: 300
+      url: ${EXTERNAL_API_URL:http://localhost:8082/api/users}
+      connection-pool-size: 200
       connect-timeout: 5000
       read-timeout: 15000
       max-redirects: 3
-      # HTTP/2 for better throughput with multiplexing
+      # HTTP/2 for REST clients
       http2: true
     health:
       enabled: true
@@ -54,26 +41,27 @@ radius:
   auth:
     enabled: true
     port: 1812
-    bind-address: 172.20.53.249
+    bind-address: 0.0.0.0
 
   # Accounting Server
   accounting:
     enabled: true
     port: 1813
-    bind-address: 172.20.53.249
+    bind-address: 0.0.0.0
 
   # Shared Configuration
   shared-secret: sharedsecret
   fail-on-startup-error: true
 
+
 client:
   coa-port: 3799
-  address: 172.20.53.249
+  address: airtel-aaa-radius-client-service.airtel-aaa.svc.cluster.local
   shared-secret: sharedsecret
 
 auth:
   service:
-    url: https://aeb53274042be477aba79f9076056316-ee9e05124271e8a5.elb.ap-southeast-2.amazonaws.com/airtel-aaa-auth-management-service/api/users/authenticate
+    url: http://airtel-aaa-auth-management-service-service:8083/api/users/authenticate
 
 kafka:
   bootstrap:
@@ -88,20 +76,14 @@ mp:
         topic: accounting
         value.serializer: io.quarkus.kafka.client.serialization.ObjectMapperSerializer
         key.serializer: org.apache.kafka.common.serialization.StringSerializer
-        # Producer reliability settings
         acks: all
         retries: 2147483647
         enable.idempotence: true
-        # Throughput optimization for 1000 TPS
         max.in.flight.requests.per.connection: 100
         compression.type: snappy
-        # Batch settings optimized for high throughput
-        # Larger batches = better throughput, slightly higher latency
         batch.size: 65536
         linger.ms: 25
-        # Buffer memory for batching (64MB for production)
         buffer.memory: 67108864
-        # Request timeout settings
         request.timeout.ms: 30000
         delivery.timeout.ms: 120000
 
@@ -113,12 +95,10 @@ mp:
         value.deserializer: io.quarkus.kafka.client.serialization.ObjectMapperDeserializer
         key.deserializer: org.apache.kafka.common.serialization.StringDeserializer
         auto.offset.reset: earliest
-        enable.auto.commit: false
-        # Consumer throughput for 1000 TPS
+        enable.auto.commit: true
         max.poll.records: 500
         max.poll.interval.ms: 300000
         session.timeout.ms: 10000
-        # Fetch settings for high throughput
         fetch.min.bytes: 1024
         fetch.max.wait.ms: 500
         failure-strategy: ignore

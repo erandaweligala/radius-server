@@ -1,5 +1,4 @@
-# ===== 1000 TPS CONFIGURATION =====
-# Optimized for handling 1000 transactions per second
+
 quarkus:
   http:
     http2: true
@@ -13,18 +12,12 @@ quarkus:
   console:
     color: true
 
-  # ===== VERT.X HIGH THROUGHPUT CONFIGURATION =====
   vertx:
-    # Event loop threads: handles I/O operations (recommended: CPU cores * 2)
-    # For 1000 TPS: minimum 32 threads for optimal performance
     event-loops-pool-size: 32
-    # Blocking pool for external HTTP calls (auth service, CoA)
-    # Size based on: expected concurrent blocking operations
     internal-blocking-pool-size: 100
     warning-exception-time: 10s
     max-event-loop-execute-time: 5s
     max-worker-execute-time: 60s
-    # Enable native transport (epoll on Linux) for better performance
     prefer-native-transport: true
     caching: false
 
@@ -61,7 +54,7 @@ client:
 auth:
   service:
     url: https://aeb53274042be477aba79f9076056316-ee9e05124271e8a5.elb.ap-southeast-2.amazonaws.com/airtel-aaa-auth-management-service/api/users/authenticate
-# ===== KAFKA CONFIGURATION FOR 1000 TPS =====
+
 mp:
   messaging:
     outgoing:
@@ -71,19 +64,14 @@ mp:
         bootstrap.servers: localhost:9092
         value.serializer: io.quarkus.kafka.client.serialization.ObjectMapperSerializer
         key.serializer: org.apache.kafka.common.serialization.StringSerializer
-        # Producer reliability settings
         acks: all
         retries: 2147483647
         enable.idempotence: true
-        # Throughput optimization for 1000 TPS
         max.in.flight.requests.per.connection: 100
         compression.type: snappy
-        # Batch settings optimized for high throughput
         batch.size: 32768
         linger.ms: 20
-        # Buffer memory for batching (32MB)
         buffer.memory: 33554432
-        # Request timeout
         request.timeout.ms: 30000
         delivery.timeout.ms: 120000
 
@@ -97,11 +85,9 @@ mp:
         key.deserializer: org.apache.kafka.common.serialization.StringDeserializer
         auto.offset.reset: earliest
         enable.auto.commit: false
-        # Consumer throughput for 1000 TPS
         max.poll.records: 500
         max.poll.interval.ms: 300000
         session.timeout.ms: 30000
-        # Fetch settings for high throughput
         fetch.min.bytes: 1024
         fetch.max.wait.ms: 500
         failure-strategy: ignore
