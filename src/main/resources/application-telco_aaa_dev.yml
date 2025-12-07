@@ -1,3 +1,5 @@
+# ===== 1000 TPS PRODUCTION CONFIGURATION =====
+# Optimized for handling 1000 transactions per second in production
 quarkus:
   # Enable HTTP/2 for better multiplexing
   http:
@@ -14,24 +16,35 @@ quarkus:
     color: true
 
 
-  # ===== VERT.X EVENT LOOP CONFIGURATION =====
+  # ===== VERT.X HIGH THROUGHPUT CONFIGURATION (1000 TPS) =====
   vertx:
-    # Optimize event loops (typically CPU cores * 2)
-    event-loops-pool-size: 16
+    # Event loop threads: handles all I/O operations
+    # For 1000 TPS: 32-64 threads recommended (depends on CPU cores)
+    event-loops-pool-size: 64
     max-worker-execute-time: 60s
-    # Internal blocking pool
-    internal-blocking-pool-size: 30
+    # Blocking pool for external HTTP calls (auth service, CoA)
+    # Size formula: peak_concurrent_requests * avg_latency_seconds
+    # For 1000 TPS with 100ms avg latency: 1000 * 0.1 = 100 threads
+    internal-blocking-pool-size: 150
+    # Warning threshold for slow operations
+    warning-exception-time: 10s
+    max-event-loop-execute-time: 5s
+    # Enable native transport (epoll on Linux) for better performance
+    prefer-native-transport: true
 
 
+  # ===== REST CLIENT CONFIGURATION (1000 TPS) =====
   rest-client:
-    # Main external API client
+    # Main external API client for authentication
     external-api:
       url: ${EXTERNAL_API_URL:http://localhost:8083/api/users}
-      connection-pool-size: 200
+      # Connection pool sized for 1000 TPS
+      # With HTTP/2 multiplexing: fewer connections needed
+      connection-pool-size: 300
       connect-timeout: 5000
       read-timeout: 15000
       max-redirects: 3
-      # HTTP/2 for REST clients
+      # HTTP/2 for better throughput with multiplexing
       http2: true
     health:
       enabled: true
@@ -66,6 +79,7 @@ kafka:
   bootstrap:
     servers: confluent-ctrl-0-svc.rkafkacone.svc.cluster.local:9092
 
+# ===== KAFKA CONFIGURATION FOR 1000 TPS =====
 mp:
   messaging:
     outgoing:
@@ -74,13 +88,22 @@ mp:
         topic: accounting
         value.serializer: io.quarkus.kafka.client.serialization.ObjectMapperSerializer
         key.serializer: org.apache.kafka.common.serialization.StringSerializer
+        # Producer reliability settings
         acks: all
         retries: 2147483647
         enable.idempotence: true
+        # Throughput optimization for 1000 TPS
         max.in.flight.requests.per.connection: 100
         compression.type: snappy
-        batch.size: 16384
-        linger.ms: 10
+        # Batch settings optimized for high throughput
+        # Larger batches = better throughput, slightly higher latency
+        batch.size: 65536
+        linger.ms: 25
+        # Buffer memory for batching (64MB for production)
+        buffer.memory: 67108864
+        # Request timeout settings
+        request.timeout.ms: 30000
+        delivery.timeout.ms: 120000
 
     incoming:
       accounting-resp-events:
@@ -91,7 +114,11 @@ mp:
         key.deserializer: org.apache.kafka.common.serialization.StringDeserializer
         auto.offset.reset: earliest
         enable.auto.commit: false
-        max.poll.records: 100
+        # Consumer throughput for 1000 TPS
+        max.poll.records: 500
         max.poll.interval.ms: 300000
-        session.timeout.ms: 3000
+        session.timeout.ms: 10000
+        # Fetch settings for high throughput
+        fetch.min.bytes: 1024
+        fetch.max.wait.ms: 500
         failure-strategy: ignore

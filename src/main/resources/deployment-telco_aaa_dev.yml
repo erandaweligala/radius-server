@@ -52,13 +52,20 @@ spec:
           tcpSocket:
             port: 8080
           timeoutSeconds: 1
+        # ===== RESOURCE LIMITS FOR 1000 TPS =====
+        # CPU: 4 cores recommended for 1000 TPS with 64 event loop threads
+        # Memory: 4Gi for JVM heap, connection pools, and Kafka buffers
         resources:
           limits:
-            cpu: 250m
-            memory: 1Gi
+            cpu: "4"
+            memory: 4Gi
           requests:
-            cpu: 150m
-            memory: 512Mi
+            cpu: "2"
+            memory: 2Gi
+        # JVM options for high throughput
+        env:
+        - name: JAVA_OPTS
+          value: "-Xms2g -Xmx3g -XX:+UseG1GC -XX:MaxGCPauseMillis=100 -XX:+UseStringDeduplication"
         startupProbe:
           failureThreshold: 3
           periodSeconds: 20
