@@ -17,13 +17,23 @@ quarkus:
       exporter: none
 
   vertx:
+    # High-TPS optimization: Match event loops to CPU cores for optimal performance
+    # Recommended: Set to number of physical CPU cores (not hyperthreads)
     event-loops-pool-size: 32
     internal-blocking-pool-size: 100
     warning-exception-time: 10s
     max-event-loop-execute-time: 5s
     max-worker-execute-time: 60s
+    # High-TPS optimization: Use native transport (epoll on Linux) for better performance
     prefer-native-transport: true
     caching: false
+    # High-TPS optimization: Disable context checks in production for reduced overhead
+    event-bus-options:
+      clustered: false
+    # High-TPS optimization: Tune pool sizes for high throughput
+    worker-pool-size: 64
+    # High-TPS optimization: Optimize internal queue sizes
+    max-worker-execute-time-unit: seconds
 
 radius:
   # Authentication Server
@@ -77,13 +87,20 @@ mp:
         acks: all
         retries: 2147483647
         enable.idempotence: true
-        max.in.flight.requests.per.connection: 100
-        compression.type: snappy
-        batch.size: 32768
-        linger.ms: 20
-        buffer.memory: 33554432
+        # High-TPS optimization: Increase parallelism
+        max.in.flight.requests.per.connection: 200
+        # High-TPS optimization: LZ4 faster than snappy for CPU-bound workloads
+        compression.type: lz4
+        # High-TPS optimization: 4x larger batch for better throughput
+        batch.size: 131072
+        # High-TPS optimization: Reduce latency while maintaining batching
+        linger.ms: 10
+        # High-TPS optimization: 2x larger buffer for burst traffic
+        buffer.memory: 67108864
         request.timeout.ms: 30000
         delivery.timeout.ms: 120000
+        # High-TPS optimization: Keep connections alive longer
+        connections.max.idle.ms: 180000
 
     incoming:
       accounting-resp-events:

@@ -22,6 +22,10 @@ import static io.quarkus.arc.ComponentsProvider.LOG;
 @ApplicationScoped
 public class RadiusAccountingProducer {
 
+    // Thread-local StringBuilder pool for partition key generation (reduces allocations)
+    private static final ThreadLocal<StringBuilder> PARTITION_KEY_BUILDER =
+            ThreadLocal.withInitial(() -> new StringBuilder(128));
+
     private final Emitter<AccountingRequestDto> accountingEmitter;
     private final Counter failureCounter;
     private final Counter fallbackCounter;
@@ -47,12 +51,9 @@ public class RadiusAccountingProducer {
 
     public CompletionStage<Void> produceAccountingEvent(AccountingRequestDto request) {
         try {
-            String partitionKey = String.format("%s-%s", request.sessionId(), request.nasIP());
+            // Optimized partition key generation - reuse StringBuilder to reduce allocations
+            String partitionKey = buildPartitionKey(request.sessionId(), request.nasIP());
 
-            if (LOG.isDebugEnabled()) {
-                LOG.debugf("Producing accounting event - SessionId: %s, NasIP: %s, Action: %s",
-                        request.sessionId(), request.nasIP(), request.actionType());
-            }
             var metadata = OutgoingKafkaRecordMetadata.<String>builder()
                     .withKey(partitionKey)
                     .build();
@@ -96,6 +97,19 @@ public class RadiusAccountingProducer {
         LOG.warnf("Circuit breaker activated - Fallback for accounting event - SessionId: %s, NasIP: %s, Action: %s (consecutive failures: %d)",
                 request.sessionId(), request.nasIP(), request.actionType(), failures);
         return CompletableFuture.completedFuture(null);
+    }
+
+    /**
+     * Optimized partition key builder - uses ThreadLocal StringBuilder to avoid allocations
+     * This is called in the hot path for every accounting event
+     */
+    private String buildPartitionKey(String sessionId, String nasIp) {
+        StringBuilder sb = PARTITION_KEY_BUILDER.get();
+        sb.setLength(0); // Clear previous content
+        sb.append(sessionId != null ? sessionId : "unknown")
+          .append('-')
+          .append(nasIp != null ? nasIp : "unknown");
+        return sb.toString();
     }
 
 }
