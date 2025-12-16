@@ -270,26 +270,25 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     }
 
     /**
-     * Publishes the accounting event to Kafka and creates the response.
-     * Returns null if the publish fails, which signals the NAS to retry.
+     * Acknowledges immediately and processes asynchronously with zero overhead.
+     * Fire-and-forget pattern - Kafka publish happens in background without blocking.
      */
     private Packet publishEventAndCreateResponse(String traceId, AccountingRequestDto.ActionType actionType,
                                                   CommonAttributes commonAttrs, AccountingRequestDto accountingRequest) {
-        try {
-            long start = System.currentTimeMillis();
-            radiusAccountingProducer.produceAccountingEvent(accountingRequest).toCompletableFuture().join();
-            logger.infof("kafka publish complete %s ms", System.currentTimeMillis() - start);
-            if (logger.isDebugEnabled()) {
-                logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
-                        traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);
-            }
+        // Fire-and-forget: Process asynchronously without blocking
+        radiusAccountingProducer.produceAccountingEvent(accountingRequest)
+                .whenComplete((result, throwable) -> {
+                    if (throwable != null) {
+                        logger.errorf(throwable, "[TraceId : %s] Async accounting event publish failed for session %s",
+                                traceId, commonAttrs.sessionId);
+                    } else if (logger.isDebugEnabled()) {
+                        logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
+                                traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);
+                    }
+                });
 
-            return createAccountingResponse(commonAttrs.sessionId);
-        } catch (Exception e) {
-            logger.errorf("[TraceId : %s] Accounting event publish failed for session %s, not sending response to NAS",
-                    traceId, commonAttrs.sessionId);
-            return null;
-        }
+        // Immediate acknowledgment - zero overhead
+        return createAccountingResponse(commonAttrs.sessionId);
     }
 
     private AccountingResponse createAccountingResponse(String sessionId) {
