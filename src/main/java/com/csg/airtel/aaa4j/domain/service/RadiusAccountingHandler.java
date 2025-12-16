@@ -45,9 +45,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     public Packet handlePacket(InetAddress clientAddress, Packet packet) {
         String traceId = MDC.get("traceId");
 
-        if (logger.isDebugEnabled()) {
-            logger.debugf("TraceId : %s Received accounting packet from %s", traceId, clientAddress.getHostAddress());
-        }
         if (!(packet instanceof AccountingRequest)) {
             logger.warnf("TraceId : %s Non-accounting packet received from %s", traceId, clientAddress.getHostAddress());
             return null;
@@ -80,34 +77,48 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     }
 
     /**
-     * Optimized attribute extraction - reduces Optional overhead by direct access
+     * Optimized attribute extraction - minimizes Optional overhead and allocations
      */
     private CommonAttributes extractCommonAttributes(Packet packet, InetAddress clientAddress) {
+        // Pre-compute client address string to avoid repeated calls
         String clientAddressStr = clientAddress.getHostAddress();
 
-        var sessionIdAttr = packet.getAttribute(AcctSessionId.class).orElse(null);
-        String sessionId = sessionIdAttr != null ? sessionIdAttr.getData().getValue() : null;
+        // Extract session ID (required attribute, fast path)
+        String sessionId = packet.getAttribute(AcctSessionId.class)
+                .map(attr -> attr.getData().getValue())
+                .orElse(null);
 
-        var nasIpAttr = packet.getAttribute(NasIpAddress.class).orElse(null);
-        String nasIp = nasIpAttr != null ? nasIpAttr.getData().getValue().getHostAddress() : clientAddressStr;
+        // Extract NAS IP with fallback to client address
+        String nasIp = packet.getAttribute(NasIpAddress.class)
+                .map(attr -> attr.getData().getValue().getHostAddress())
+                .orElse(clientAddressStr);
 
-        var userNameAttr = packet.getAttribute(UserName.class).orElse(null);
-        String userName = userNameAttr != null ? userNameAttr.getData().getValue() : null;
+        // Extract username (required for accounting)
+        String userName = packet.getAttribute(UserName.class)
+                .map(attr -> attr.getData().getValue())
+                .orElse(null);
 
-        var nasPortIdAttr = packet.getAttribute(NasPortId.class).orElse(null);
-        String nasPortId = nasPortIdAttr != null ? nasPortIdAttr.getData().getValue() : null;
+        // Extract optional port identification attributes
+        String nasPortId = packet.getAttribute(NasPortId.class)
+                .map(attr -> attr.getData().getValue())
+                .orElse(null);
 
-        var nasIdentifierAttr = packet.getAttribute(NasIdentifier.class).orElse(null);
-        String nasIdentifier = nasIdentifierAttr != null ? nasIdentifierAttr.getData().getValue() : null;
+        String nasIdentifier = packet.getAttribute(NasIdentifier.class)
+                .map(attr -> attr.getData().getValue())
+                .orElse(null);
 
-        var nasPortTypeAttr = packet.getAttribute(NasPortType.class).orElse(null);
-        Integer nasPortType = nasPortTypeAttr != null ? nasPortTypeAttr.getData().getValue() : null;
+        Integer nasPortType = packet.getAttribute(NasPortType.class)
+                .map(attr -> attr.getData().getValue())
+                .orElse(null);
 
-        var delayTimeAttr = packet.getAttribute(AcctDelayTime.class).orElse(null);
-        int delayTime = delayTimeAttr != null ? delayTimeAttr.getData().getValue() : 0;
+        // Extract timing attributes with sensible defaults
+        int delayTime = packet.getAttribute(AcctDelayTime.class)
+                .map(attr -> attr.getData().getValue())
+                .orElse(0);
 
-        var eventTimeAttr = packet.getAttribute(EventTimestamp.class).orElse(null);
-        Instant eventTime = eventTimeAttr != null ? eventTimeAttr.getData().getValue() : Instant.now();
+        Instant eventTime = packet.getAttribute(EventTimestamp.class)
+                .map(attr -> attr.getData().getValue())
+                .orElse(Instant.now());
 
         return new CommonAttributes(
                 clientAddressStr,
@@ -128,11 +139,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     private AccountingRequestDto buildStartRequest(String traceId, CommonAttributes common, Packet packet) {
         var framedIpAttr = packet.getAttribute(FramedIpAddress.class).orElse(null);
         String framedIp = framedIpAttr != null ? framedIpAttr.getData().getValue().getHostAddress() : null;
-
-        if (logger.isDebugEnabled()) {
-            logger.debugf("[TraceId : %s] START - User: %s, Session: %s, Framed-IP: %s",
-                    traceId, common.userName, common.sessionId, framedIp);
-        }
 
         return new AccountingRequestDto(
                 traceId,
@@ -175,19 +181,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
         var outputGigaWordsAttr = packet.getAttribute(AcctOutputGigawords.class).orElse(null);
         int outputGigaWords = outputGigaWordsAttr != null ? outputGigaWordsAttr.getData().getValue() : 0;
 
-        // Only log at DEBUG level to reduce overhead
-        if (logger.isDebugEnabled()) {
-            var inputPacketsAttr = packet.getAttribute(AcctInputPackets.class).orElse(null);
-            int inputPackets = inputPacketsAttr != null ? inputPacketsAttr.getData().getValue() : 0;
-
-            var outputPacketsAttr = packet.getAttribute(AcctOutputPackets.class).orElse(null);
-            int outputPackets = outputPacketsAttr != null ? outputPacketsAttr.getData().getValue() : 0;
-
-            logger.debugf("[TraceId : %s] INTERIM - User: %s, Session: %s, SessionTime: %ds, " +
-                            "Input: %d bytes (%d packets), Output: %d bytes (%d packets)",
-                    traceId, common.userName, common.sessionId, sessionTime, inputPackets, outputPackets);
-        }
-
         return new AccountingRequestDto(
                 traceId,
                 common.sessionId,
@@ -225,16 +218,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
 
         var outputGigaWordsAttr = packet.getAttribute(AcctOutputGigawords.class).orElse(null);
         int outputGigaWords = outputGigaWordsAttr != null ? outputGigaWordsAttr.getData().getValue() : 0;
-
-        if (logger.isDebugEnabled()) {
-            var terminateCauseAttr = packet.getAttribute(AcctTerminateCause.class).orElse(null);
-            Integer terminateCause = terminateCauseAttr != null ? terminateCauseAttr.getData().getValue() : null;
-
-            logger.debugf("TraceId : %s STOP - User: %s, Session: %s, SessionTime: %ds, " +
-                            "TotalInput: %d bytes, TotalOutput: %d bytes, TerminateCause: %s",
-                    traceId, common.userName, common.sessionId, sessionTime, inputOctets, outputOctets,
-                    terminateCause != null ? getTerminateCauseDescription(terminateCause) : "Unknown");
-        }
 
         return new AccountingRequestDto(
                 traceId,
@@ -281,9 +264,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
                     if (throwable != null) {
                         logger.errorf(throwable, "[TraceId : %s] Async accounting event publish failed for session %s",
                                 traceId, commonAttrs.sessionId);
-                    } else if (logger.isDebugEnabled()) {
-                        logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
-                                traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);
                     }
                 });
 
