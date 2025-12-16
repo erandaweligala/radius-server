@@ -23,6 +23,7 @@ import static io.quarkus.arc.ComponentsProvider.LOG;
 public class RadiusAccountingProducer {
 
     // Thread-local StringBuilder pool for partition key generation (reduces allocations)
+    //todo Call "remove()" on "PARTITION_KEY_BUILDER".
     private static final ThreadLocal<StringBuilder> PARTITION_KEY_BUILDER =
             ThreadLocal.withInitial(() -> new StringBuilder(128));
 
@@ -48,7 +49,6 @@ public class RadiusAccountingProducer {
             successThreshold = 3
     )
     @Fallback(fallbackMethod = "fallbackProduceAccountingEvent")
-
     public CompletionStage<Void> produceAccountingEvent(AccountingRequestDto request) {
         try {
             // Optimized partition key generation - reuse StringBuilder to reduce allocations

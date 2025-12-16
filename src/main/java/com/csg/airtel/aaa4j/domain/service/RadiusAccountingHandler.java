@@ -281,29 +281,6 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
         return new AccountingResponse(Collections.emptyList());
     }
 
-    private String getTerminateCauseDescription(int cause) {
-        return switch (cause) {
-            case 1 -> "User-Request";
-            case 2 -> "Lost-Carrier";
-            case 3 -> "Lost-Service";
-            case 4 -> "Idle-Timeout";
-            case 5 -> "Session-Timeout";
-            case 6 -> "Admin-Reset";
-            case 7 -> "Admin-Reboot";
-            case 8 -> "Port-Error";
-            case 9 -> "NAS-Error";
-            case 10 -> "NAS-Request";
-            case 11 -> "NAS-Reboot";
-            case 12 -> "Port-Unneeded";
-            case 13 -> "Port-Preempted";
-            case 14 -> "Port-Suspended";
-            case 15 -> "Service-Unavailable";
-            case 16 -> "Callback";
-            case 17 -> "User-Error";
-            case 18 -> "Host-Request";
-            default -> "Unknown (" + cause + ")";
-        };
-    }
 
         /**
          * Inner class to hold common attributes extracted from all accounting packets
