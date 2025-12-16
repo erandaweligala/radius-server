@@ -23,7 +23,6 @@ import static io.quarkus.arc.ComponentsProvider.LOG;
 public class RadiusAccountingProducer {
 
     // Thread-local StringBuilder pool for partition key generation (reduces allocations)
-    //todo Call "remove()" on "PARTITION_KEY_BUILDER".
     private static final ThreadLocal<StringBuilder> PARTITION_KEY_BUILDER =
             ThreadLocal.withInitial(() -> new StringBuilder(128));
 
@@ -105,11 +104,15 @@ public class RadiusAccountingProducer {
      */
     private String buildPartitionKey(String sessionId, String nasIp) {
         StringBuilder sb = PARTITION_KEY_BUILDER.get();
-        sb.setLength(0); // Clear previous content
-        sb.append(sessionId != null ? sessionId : "unknown")
-          .append('-')
-          .append(nasIp != null ? nasIp : "unknown");
-        return sb.toString();
+        try {
+            sb.setLength(0); // Clear previous content
+            sb.append(sessionId != null ? sessionId : "unknown")
+              .append('-')
+              .append(nasIp != null ? nasIp : "unknown");
+            return sb.toString();
+        } finally {
+            PARTITION_KEY_BUILDER.remove();
+        }
     }
 
 }
