@@ -276,9 +276,9 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     private Packet publishEventAndCreateResponse(String traceId, AccountingRequestDto.ActionType actionType,
                                                   CommonAttributes commonAttrs, AccountingRequestDto accountingRequest) {
         try {
-
+            long start = System.currentTimeMillis();
             radiusAccountingProducer.produceAccountingEvent(accountingRequest).toCompletableFuture().join();
-
+            logger.infof("kafka publish complete %s ms", System.currentTimeMillis() - start);
             if (logger.isDebugEnabled()) {
                 logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
                         traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);

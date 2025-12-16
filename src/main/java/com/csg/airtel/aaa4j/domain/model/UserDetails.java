@@ -1,12 +1,15 @@
 package com.csg.airtel.aaa4j.domain.model;
 
+
 import java.util.HashMap;
 import java.util.Map;
+
 public class UserDetails {
     private String username;
     private boolean isAuthorized;
     private boolean isActive;
     private boolean isEnoughBalance;
+    private String rule;
     private Map<String, String> attributes;
 
 
@@ -14,11 +17,12 @@ public class UserDetails {
     public UserDetails() {
     }
 
-    public UserDetails(String username, boolean isAuthorized, boolean isActive,boolean isEnoughBalance, Map<String, String> attributes) {
+    public UserDetails(String username, boolean isAuthorized, boolean isActive, boolean isEnoughBalance, String rule, Map<String, String> attributes) {
         this.username = username;
         this.isAuthorized = isAuthorized;
         this.isActive = isActive;
         this.isEnoughBalance = isEnoughBalance;
+        this.rule = rule;
         this.attributes = attributes;
     }
 
@@ -44,5 +48,13 @@ public class UserDetails {
 
     public void setAttributes(Map<String, String> attributes) {
         this.attributes = attributes;
+    }
+
+    public String getRule() {
+        return rule;
+    }
+
+    public void setRule(String rule) {
+        this.rule = rule;
     }
 }

@@ -26,7 +26,7 @@ class UserDetailsTest {
         attributes.put("role", "admin");
         attributes.put("department", "IT");
         
-        UserDetails userDetails = new UserDetails("testuser", true, true, true, attributes);
+        UserDetails userDetails = new UserDetails("testuser", true, true, true,null, attributes);
         
         assertEquals("testuser", userDetails.getUsername());
         assertTrue(userDetails.getIsAuthorized());
@@ -38,7 +38,7 @@ class UserDetailsTest {
 
     @Test
     void testParameterizedConstructor_WithNullAttributes() {
-        UserDetails userDetails = new UserDetails("testuser", true, false,true,  null);
+        UserDetails userDetails = new UserDetails("testuser", true, false,true,null,  null);
         
         assertEquals("testuser", userDetails.getUsername());
         assertTrue(userDetails.getIsAuthorized());
@@ -76,7 +76,7 @@ class UserDetailsTest {
 
     @Test
     void testGetAttributes_ReturnsEmptyMapWhenNull() {
-        UserDetails userDetails = new UserDetails("user", false, false,true, null);
+        UserDetails userDetails = new UserDetails("user", false, false,true,null, null);
         
         Map<String, String> attributes = userDetails.getAttributes();
         assertNotNull(attributes);
@@ -88,7 +88,7 @@ class UserDetailsTest {
         Map<String, String> originalAttributes = new HashMap<>();
         originalAttributes.put("test", "value");
         
-        UserDetails userDetails = new UserDetails("user", false, false, true,originalAttributes);
+        UserDetails userDetails = new UserDetails("user", false, false, true,null,originalAttributes);
         
         Map<String, String> retrievedAttributes = userDetails.getAttributes();
         assertEquals(originalAttributes, retrievedAttributes);

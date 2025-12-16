@@ -12,8 +12,11 @@ quarkus:
   console:
     color: true
 
+  otel:
+    traces:
+      exporter: none
 
-  # ===== VERT.X HIGH THROUGHPUT CONFIGURATION (1000 TPS) =====
+  # ===== VERT.X HIGH THROUGHPUT CONFIGURATION =====
   vertx:
     event-loops-pool-size: 64
     max-worker-execute-time: 60s
@@ -22,19 +25,6 @@ quarkus:
     max-event-loop-execute-time: 5s
     prefer-native-transport: true
 
-
-  rest-client:
-    # Main external API client
-    external-api:
-      url: ${EXTERNAL_API_URL:http://localhost:8082/api/users}
-      connection-pool-size: 200
-      connect-timeout: 5000
-      read-timeout: 15000
-      max-redirects: 3
-      # HTTP/2 for REST clients
-      http2: true
-    health:
-      enabled: true
 
 radius:
   # Authentication Server
@@ -63,6 +53,18 @@ client:
 auth:
   service:
     url: http://airtel-aaa-auth-management-service-service:8083/api/users/authenticate
+# WebClient connection pool settings optimized for 1000+ TPS
+webclient:
+  max-pool-size: 250
+  connect-timeout: 5000
+  idle-timeout: 60000
+  keep-alive: true
+  pipelining: true
+  pipelining-limit: 10
+  http2-max-pool-size: 250
+  http2-multiplexing-limit: 100
+  http2-keep-alive-timeout: 60
+
 
 kafka:
   bootstrap:

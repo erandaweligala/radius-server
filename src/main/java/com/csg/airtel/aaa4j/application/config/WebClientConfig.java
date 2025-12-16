@@ -5,7 +5,6 @@ import io.smallrye.config.WithDefault;
 
 /**
  * Configuration for WebClient connection pool settings optimized for high throughput.
- *
  * Pool sizing rationale:
  * - HTTP/1.1 pool: 250 connections (fallback for non-HTTP/2 servers)
  * - HTTP/2 pool: 250 connections with 100 streams each = 25,000 concurrent requests

@@ -22,8 +22,6 @@ public class WebClientProvider {
 
     /**
      * Initialize WebClient with connection pool settings from configuration.
-     * Settings are optimized for high throughput (1000+ TPS).
-     *
      * Pool sizing rationale:
      * - HTTP/1.1 pool: configurable connections (fallback for non-HTTP/2 servers)
      * - HTTP/2 pool: configurable connections with multiplexing for concurrent requests

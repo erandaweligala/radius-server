@@ -78,7 +78,7 @@ public class AuthManagementServiceClient {
             return future.get(); // Blocking, you can add timeout if needed
         } catch (ExecutionException e) {
             logger.error("[{}] {}: {}", traceId, AuthServiceConstants.MSG_INTERNAL_ERROR, e.getMessage(), e);
-            return new UserDetails(username, false, false, false, null);
+            return new UserDetails(username, false, false, false, null, null);
         } finally {
             MDC.remove(AuthServiceConstants.TRACE_ID);
         }

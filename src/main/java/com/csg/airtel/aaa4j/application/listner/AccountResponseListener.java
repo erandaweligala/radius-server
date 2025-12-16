@@ -5,9 +5,13 @@ import com.csg.airtel.aaa4j.domain.service.ResponseHandler;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.reactive.messaging.Acknowledgment;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.jboss.logging.Logger;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 
 @ApplicationScoped
@@ -23,15 +27,18 @@ public class AccountResponseListener {
     }
 
     @Incoming("accounting-resp-events")
-    public Uni<Void> consumeWithAck(Message<AccountingResponseEvent> message) {
+    @Acknowledgment(Acknowledgment.Strategy.PRE_PROCESSING)
+    public CompletionStage<Void> consumeWithAck(Message<AccountingResponseEvent> message) {
         AccountingResponseEvent payload = message.getPayload();
         logger.infof("[traceId : %s] Account Event Response Received", payload.eventId());
 
-      return  accountResponseHandler.processAccountingResponse(payload).onItem().transformToUni(result -> Uni.createFrom().completionStage(message.ack()))
-                .onFailure().recoverWithUni(throwable -> {
-                  logger.errorf(throwable, "Error processing event for user: %s | eventType: %s",
-                          payload.eventId(), payload.eventType());
-                    return Uni.createFrom().completionStage(message.nack(throwable));
-                });
+        // Message is already acked before this method is called
+        accountResponseHandler.processAccountingResponse(payload)
+                .subscribe().with(
+                        result -> logger.infof("Successfully processed event: %s", payload.eventId()),
+                        throwable -> logger.errorf(throwable, "Error processing event: %s", payload.eventId())
+                );
+
+        return CompletableFuture.completedFuture(null);
     }
 }

@@ -45,6 +45,8 @@ public class RadiusAccountingProducer {
     )
     @Fallback(fallbackMethod = "fallbackProduceAccountingEvent")
     public CompletionStage<Void> produceAccountingEvent(AccountingRequestDto request) {
+
+
         try {
 
             String partitionKey = String.format("%s-%s", request.sessionId(), request.nasIP());
