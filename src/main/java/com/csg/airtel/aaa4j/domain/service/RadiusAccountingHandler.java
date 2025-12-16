@@ -270,26 +270,32 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
     }
 
     /**
-     * Publishes the accounting event to Kafka and creates the response.
-     * Returns null if the publish fails, which signals the NAS to retry.
+     * Immediately acknowledges the accounting request and processes the event asynchronously.
+     * This ensures the NAS receives a quick response without waiting for Kafka publishing.
      */
     private Packet publishEventAndCreateResponse(String traceId, AccountingRequestDto.ActionType actionType,
                                                   CommonAttributes commonAttrs, AccountingRequestDto accountingRequest) {
-        try {
-            long start = System.currentTimeMillis();
-            radiusAccountingProducer.produceAccountingEvent(accountingRequest).toCompletableFuture().join();
-            logger.infof("kafka publish complete %s ms", System.currentTimeMillis() - start);
-            if (logger.isDebugEnabled()) {
-                logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
-                        traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);
-            }
+        // Acknowledge immediately - don't wait for Kafka
+        Packet response = createAccountingResponse(commonAttrs.sessionId);
 
-            return createAccountingResponse(commonAttrs.sessionId);
-        } catch (Exception e) {
-            logger.errorf("[TraceId : %s] Accounting event publish failed for session %s, not sending response to NAS",
-                    traceId, commonAttrs.sessionId);
-            return null;
-        }
+        // Process Kafka publishing asynchronously
+        long start = System.currentTimeMillis();
+        radiusAccountingProducer.produceAccountingEvent(accountingRequest)
+            .whenComplete((result, throwable) -> {
+                if (throwable != null) {
+                    logger.errorf(throwable, "[TraceId : %s] Accounting event publish failed for session %s (async)",
+                            traceId, commonAttrs.sessionId);
+                } else {
+                    long duration = System.currentTimeMillis() - start;
+                    logger.infof("[TraceId : %s] Kafka publish complete in %d ms (async)", traceId, duration);
+                    if (logger.isDebugEnabled()) {
+                        logger.debugf("[TraceId : %s] Accounting %s processed for user %s, session %s",
+                                traceId, actionType, commonAttrs.userName, commonAttrs.sessionId);
+                    }
+                }
+            });
+
+        return response;
     }
 
     private AccountingResponse createAccountingResponse(String sessionId) {
