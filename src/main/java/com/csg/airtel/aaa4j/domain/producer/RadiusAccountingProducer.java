@@ -49,7 +49,7 @@ public class RadiusAccountingProducer {
 
 
         try {
-        //todo Acknowledge immediately, then process asynchronously  without any overhead
+        //todo Acknowledge kafka immediately, then process asynchronously  without any overhead
             String partitionKey = String.format("%s-%s", request.sessionId(), request.nasIP());
 
             if (LOG.isDebugEnabled()) {
