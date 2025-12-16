@@ -44,11 +44,12 @@ public class RadiusAccountingProducer {
             successThreshold = 3
     )
     @Fallback(fallbackMethod = "fallbackProduceAccountingEvent")
+
     public CompletionStage<Void> produceAccountingEvent(AccountingRequestDto request) {
 
 
         try {
-
+        //todo Acknowledge immediately, then process asynchronously  without any overhead
             String partitionKey = String.format("%s-%s", request.sessionId(), request.nasIP());
 
             if (LOG.isDebugEnabled()) {
