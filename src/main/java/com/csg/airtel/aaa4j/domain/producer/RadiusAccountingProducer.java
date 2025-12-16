@@ -44,6 +44,7 @@ public class RadiusAccountingProducer {
             successThreshold = 3
     )
     @Fallback(fallbackMethod = "fallbackProduceAccountingEvent")
+    //todo Acknowledge immediately, then process asynchronously as possible produceAccountingEvent
     public CompletionStage<Void> produceAccountingEvent(AccountingRequestDto request) {
 
 
