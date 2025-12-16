@@ -43,6 +43,7 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
 
     @Override
     public Packet handlePacket(InetAddress clientAddress, Packet packet) {
+        long start = System.currentTimeMillis();
         String traceId = MDC.get("traceId");
 
         if (!(packet instanceof AccountingRequest)) {
@@ -68,7 +69,9 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
                 case STOP -> buildStopRequest(traceId, commonAttrs, packet);
             };
 
-            return publishEventAndCreateResponse(traceId, actionType, commonAttrs, accountingRequest);
+            Packet response = publishEventAndCreateResponse(traceId, actionType, commonAttrs, accountingRequest);
+            logger.infof("complete process account in %d ms", System.currentTimeMillis() - start );
+            return response;
         } catch (Exception e) {
             logger.errorf(e, "TraceId : %s Error processing accounting packet from %s",
                     traceId, clientAddress.getHostAddress());
@@ -258,7 +261,7 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
      */
     private Packet publishEventAndCreateResponse(String traceId, AccountingRequestDto.ActionType actionType,
                                                   CommonAttributes commonAttrs, AccountingRequestDto accountingRequest) {
-        // Fire-and-forget: Process asynchronously without blocking
+
         radiusAccountingProducer.produceAccountingEvent(accountingRequest)
                 .whenComplete((result, throwable) -> {
                     if (throwable != null) {
@@ -267,7 +270,7 @@ public class RadiusAccountingHandler implements RadiusServer.Handler {
                     }
                 });
 
-        // Immediate acknowledgment - zero overhead
+
         return createAccountingResponse(commonAttrs.sessionId);
     }
 

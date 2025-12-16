@@ -22,7 +22,7 @@ import static io.quarkus.arc.ComponentsProvider.LOG;
 @ApplicationScoped
 public class RadiusAccountingProducer {
 
-    // Thread-local StringBuilder pool for partition key generation (reduces allocations)
+
     private static final ThreadLocal<StringBuilder> PARTITION_KEY_BUILDER =
             ThreadLocal.withInitial(() -> new StringBuilder(128));
 
@@ -50,7 +50,7 @@ public class RadiusAccountingProducer {
     @Fallback(fallbackMethod = "fallbackProduceAccountingEvent")
     public CompletionStage<Void> produceAccountingEvent(AccountingRequestDto request) {
         try {
-            // Optimized partition key generation - reuse StringBuilder to reduce allocations
+            long startTime = System.currentTimeMillis();
             String partitionKey = buildPartitionKey(request.sessionId(), request.nasIP());
 
             var metadata = OutgoingKafkaRecordMetadata.<String>builder()
@@ -63,6 +63,7 @@ public class RadiusAccountingProducer {
                     .withAck(() -> {
                         consecutiveFailures.set(0);
                         future.complete(null);
+                        LOG.infof("Sending account event completed in %s ms", System.currentTimeMillis()-startTime);
                         return CompletableFuture.completedFuture(null);
                     })
                     .withNack(throwable -> {
